@@ -1,0 +1,25 @@
+[Unit]
+Description=Maxine PipeWire Audio Effects Daemon
+Documentation=https://github.com/darudas/maxine-pipewire
+Requires=pipewire.service
+After=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=@bindir@/maxined
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+
+# GPU access
+SupplementaryGroups=video render
+
+[Install]
+WantedBy=default.target

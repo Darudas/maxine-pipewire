@@ -1,0 +1,2 @@
+option('video_effects', type: 'boolean', value: false, description: 'Enable video effects (requires VFX SDK)')
+option('systemd', type: 'boolean', value: true, description: 'Install systemd user service')

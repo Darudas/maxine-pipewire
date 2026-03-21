@@ -1,0 +1,19 @@
+build/
+*.so
+*.o
+*.a
+
+# Editor/IDE
+.cache/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+compile_commands.json
+
+# Arch packaging
+*.pkg.tar.zst
+*.pkg.tar.xz
+pkg/
+src/*.tar.gz

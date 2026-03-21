@@ -1,0 +1,115 @@
+# Maxine PipeWire Audio Effects Configuration
+#
+# This file configures the maxined daemon.
+# After changes, either restart the daemon or run: maxctl reload
+#
+# See 'maxctl effects' for all available effects.
+
+[general]
+# Path to Maxine AFX features/ directory
+# This is where the SDK stores its neural network models.
+model_path = "/opt/maxine-afx/features"
+
+# Path to directory containing libnv_audiofx.so
+# Leave commented out to use LD_LIBRARY_PATH instead.
+# sdk_lib_path = "/opt/maxine-afx/nvafx/lib"
+
+# Sample rate for audio processing.
+# Maxine supports 16000 (low quality, lower latency) and 48000 (high quality).
+sample_rate = 48000
+
+# PipeWire source device to capture from.
+# Leave empty or commented out to use the default microphone.
+# Find your device name with: pw-cli list-objects Node
+# source_device = "alsa_input.pci-0000_c1_00.6.analog-stereo"
+
+# Name of the virtual source that applications should select as input.
+virtual_source_name = "Maxine Clean Mic"
+
+
+# ============================================================================
+# Effect Configuration
+# ============================================================================
+#
+# Each [effect.NAME] section configures one effect.
+# NAME must match a valid effect ID.
+#
+# Common parameters:
+#   enabled     = true/false    Whether the effect is active on startup
+#   intensity   = 0.0-1.0      How aggressively the effect processes audio
+#   enable_vad  = true/false    Voice Activity Detection (not all effects)
+#
+# Effects are processed in the order they appear in this file.
+# Only enabled effects use GPU resources.
+
+# --- Noise Removal ---
+# Removes background noise like typing, fans, air conditioning, etc.
+# This is the most commonly used effect and works well at intensity 0.6-1.0.
+[effect.denoiser]
+enabled = true
+intensity = 0.8
+enable_vad = false
+
+# --- Room Echo Removal ---
+# Removes room reverberation and echo caused by hard surfaces.
+# Useful for untreated rooms without acoustic panels.
+# [effect.dereverb]
+# enabled = false
+# intensity = 0.6
+
+# --- Combined Noise + Room Echo Removal ---
+# Single-pass combined denoiser + dereverb with lower latency than
+# running both effects separately.
+# [effect.dereverb_denoiser]
+# enabled = false
+# intensity = 0.8
+
+# --- Acoustic Echo Cancellation ---
+# Removes speaker audio that leaks into the microphone.
+# Essential for speaker+mic setups (no headset).
+# Note: PipeWire's module-echo-cancel may be better for this -
+# see config/60-maxine-echo-cancel.conf for that approach.
+# [effect.aec]
+# enabled = false
+# intensity = 1.0
+
+# --- Audio Super Resolution ---
+# Upscales low-quality audio (8kHz/16kHz) to 48kHz.
+# Useful when receiving poor-quality audio from others.
+# [effect.superres]
+# enabled = false
+# intensity = 1.0
+
+# --- Studio Voice (High Quality) ---
+# Makes any microphone sound like a professional studio recording.
+# Higher quality but also higher latency than the low-latency variant.
+# [effect.studio_voice_hq]
+# enabled = false
+# intensity = 1.0
+
+# --- Studio Voice (Low Latency) ---
+# Studio-quality voice processing with reduced latency.
+# Good for real-time communication where latency matters.
+# [effect.studio_voice_ll]
+# enabled = false
+# intensity = 1.0
+
+# --- Speaker Focus ---
+# Isolates the primary speaker and removes other voices.
+# Useful in shared spaces or open offices.
+# [effect.speaker_focus]
+# enabled = false
+# intensity = 1.0
+
+# --- Voice Font (High Quality) ---
+# Transforms your voice to match a reference voice.
+# Requires a reference audio file configured separately.
+# [effect.voice_font_hq]
+# enabled = false
+# intensity = 1.0
+
+# --- Voice Font (Low Latency) ---
+# Voice transformation with reduced latency.
+# [effect.voice_font_ll]
+# enabled = false
+# intensity = 1.0
