@@ -6,6 +6,7 @@
 #include <QDBusPendingReply>
 #include <QDBusPendingCallWatcher>
 #include <QDebug>
+#include <cmath>
 
 const QString DBusClient::s_service   = QStringLiteral("org.maxine.Effects");
 const QString DBusClient::s_path      = QStringLiteral("/org/maxine/Effects");
@@ -17,6 +18,7 @@ DBusClient::DBusClient(QObject *parent)
     , m_pollTimer(new QTimer(this))
     , m_connected(false)
     , m_wasConnected(false)
+    , m_destroying(false)
 {
     connect(m_pollTimer, &QTimer::timeout, this, &DBusClient::pollStatus);
     ensureInterface();
@@ -24,8 +26,10 @@ DBusClient::DBusClient(QObject *parent)
 
 DBusClient::~DBusClient()
 {
+    m_destroying = true;
     stopPolling();
     delete m_iface;
+    m_iface = nullptr;
 }
 
 void DBusClient::ensureInterface()
@@ -37,7 +41,7 @@ void DBusClient::ensureInterface()
 
     m_iface = new QDBusInterface(
         s_service, s_path, s_interface,
-        QDBusConnection::sessionBus(), this
+        QDBusConnection::sessionBus()
     );
 }
 
@@ -47,13 +51,16 @@ bool DBusClient::checkDaemon()
         ensureInterface();
     }
 
-    // Try a lightweight call to check if daemon is alive
-    QDBusReply<QDBusArgument> reply = m_iface->call(
-        QDBus::Block, QStringLiteral("GetStatus")
-    );
+    if (!m_iface || !m_iface->isValid()) {
+        updateConnectionState(false);
+        return false;
+    }
 
-    bool nowConnected = reply.isValid();
+    return m_connected;
+}
 
+void DBusClient::updateConnectionState(bool nowConnected)
+{
     if (nowConnected && !m_wasConnected) {
         m_connected = true;
         m_wasConnected = true;
@@ -65,8 +72,6 @@ bool DBusClient::checkDaemon()
     } else {
         m_connected = nowConnected;
     }
-
-    return m_connected;
 }
 
 bool DBusClient::isConnected() const
@@ -89,14 +94,27 @@ QVector<EffectInfo> DBusClient::listEffects()
     if (reply.arguments().isEmpty())
         return result;
 
-    const QDBusArgument arg = reply.arguments().at(0).value<QDBusArgument>();
+    const QVariant firstArg = reply.arguments().at(0);
+    if (!firstArg.canConvert<QDBusArgument>())
+        return result;
+
+    const QDBusArgument arg = firstArg.value<QDBusArgument>();
+    if (arg.currentType() != QDBusArgument::ArrayType)
+        return result;
+
     arg.beginArray();
     while (!arg.atEnd()) {
+        if (arg.currentType() != QDBusArgument::StructureType)
+            break;
         arg.beginStructure();
         EffectInfo info;
         arg >> info.id;
         arg >> info.enabled;
         arg >> info.intensity;
+        // Clamp intensity to valid range
+        if (std::isnan(info.intensity) || std::isinf(info.intensity))
+            info.intensity = 1.0;
+        info.intensity = qBound(0.0, info.intensity, 1.0);
         arg.endStructure();
         result.append(info);
     }
@@ -120,9 +138,18 @@ QVector<DeviceInfo> DBusClient::listDevices()
     if (reply.arguments().isEmpty())
         return result;
 
-    const QDBusArgument arg = reply.arguments().at(0).value<QDBusArgument>();
+    const QVariant firstArg = reply.arguments().at(0);
+    if (!firstArg.canConvert<QDBusArgument>())
+        return result;
+
+    const QDBusArgument arg = firstArg.value<QDBusArgument>();
+    if (arg.currentType() != QDBusArgument::ArrayType)
+        return result;
+
     arg.beginArray();
     while (!arg.atEnd()) {
+        if (arg.currentType() != QDBusArgument::StructureType)
+            break;
         arg.beginStructure();
         DeviceInfo info;
         arg >> info.id;
@@ -153,9 +180,18 @@ DaemonStatus DBusClient::getStatus()
     if (reply.arguments().isEmpty())
         return status;
 
-    const QDBusArgument arg = reply.arguments().at(0).value<QDBusArgument>();
+    const QVariant firstArg = reply.arguments().at(0);
+    if (!firstArg.canConvert<QDBusArgument>())
+        return status;
+
+    const QDBusArgument arg = firstArg.value<QDBusArgument>();
+    if (arg.currentType() != QDBusArgument::MapType)
+        return status;
+
     arg.beginMap();
     while (!arg.atEnd()) {
+        if (arg.currentType() != QDBusArgument::MapEntryType)
+            break;
         arg.beginMapEntry();
         QString key, value;
         arg >> key >> value;
@@ -182,11 +218,8 @@ DaemonStatus DBusClient::getStatus()
     }
     arg.endMap();
 
+    // Mark as connected — caller (pollStatus) handles state transitions via updateConnectionState()
     m_connected = true;
-    if (!m_wasConnected) {
-        m_wasConnected = true;
-        emit daemonConnected();
-    }
 
     return status;
 }
@@ -203,9 +236,10 @@ void DBusClient::enableEffectAsync(const QString &name)
     auto *watcher = new QDBusPendingCallWatcher(pending, this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
         [this, name](QDBusPendingCallWatcher *w) {
+            w->deleteLater();
+            if (m_destroying) return;
             QDBusPendingReply<bool> reply = *w;
             emit effectToggled(name, !reply.isError());
-            w->deleteLater();
             // Trigger an immediate refresh
             pollStatus();
         }
@@ -224,9 +258,10 @@ void DBusClient::disableEffectAsync(const QString &name)
     auto *watcher = new QDBusPendingCallWatcher(pending, this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
         [this, name](QDBusPendingCallWatcher *w) {
+            w->deleteLater();
+            if (m_destroying) return;
             QDBusPendingReply<bool> reply = *w;
             emit effectToggled(name, !reply.isError());
-            w->deleteLater();
             pollStatus();
         }
     );
@@ -244,9 +279,10 @@ void DBusClient::setIntensityAsync(const QString &name, double value)
     auto *watcher = new QDBusPendingCallWatcher(pending, this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
         [this, name](QDBusPendingCallWatcher *w) {
+            w->deleteLater();
+            if (m_destroying) return;
             QDBusPendingReply<bool> reply = *w;
             emit intensityChanged(name, !reply.isError());
-            w->deleteLater();
         }
     );
 }
@@ -263,9 +299,10 @@ void DBusClient::reloadConfigAsync()
     auto *watcher = new QDBusPendingCallWatcher(pending, this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
         [this](QDBusPendingCallWatcher *w) {
+            w->deleteLater();
+            if (m_destroying) return;
             QDBusPendingReply<bool> reply = *w;
             emit configReloaded(!reply.isError());
-            w->deleteLater();
         }
     );
 }
@@ -284,11 +321,19 @@ void DBusClient::stopPolling()
 
 void DBusClient::pollStatus()
 {
-    if (!checkDaemon()) {
+    if (!m_iface || !m_iface->isValid())
+        ensureInterface();
+
+    // getStatus() already updates m_connected / m_wasConnected internally
+    DaemonStatus status = getStatus();
+
+    if (!status.running && !m_connected) {
+        // getStatus failed — daemon not reachable
+        updateConnectionState(false);
         return;
     }
 
-    DaemonStatus status = getStatus();
+    updateConnectionState(true);
     emit statusUpdated(status);
 
     QVector<EffectInfo> effects = listEffects();

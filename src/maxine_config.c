@@ -1,6 +1,7 @@
 #include "maxine_config.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,6 +77,10 @@ int maxine_config_parse(struct maxine_config *cfg, const char *path)
             snprintf(e->section, sizeof(e->section), "%s", current_section);
             snprintf(e->key, sizeof(e->key), "%s", key);
             snprintf(e->value, sizeof(e->value), "%s", val);
+        } else {
+            fprintf(stderr, "maxine: config has too many entries (max %d), "
+                    "ignoring [%s] %s\n",
+                    MAXINE_CONFIG_MAX_ENTRIES, current_section, key);
         }
     }
 
@@ -189,10 +194,22 @@ int maxine_config_write_default(const char *path)
         mkdirp(dir, 0755);
     }
 
-    FILE *fp = fopen(path, "w");
-    if (!fp) {
+    // Use O_CREAT|O_EXCL to atomically create the file only if it doesn't exist,
+    // avoiding TOCTOU race between access() and fopen().
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    if (fd < 0) {
+        if (errno == EEXIST)
+            return 0;  // another process created it first
         fprintf(stderr, "maxine: failed to create default config '%s': %s\n",
                 path, strerror(errno));
+        return -1;
+    }
+
+    FILE *fp = fdopen(fd, "w");
+    if (!fp) {
+        fprintf(stderr, "maxine: failed to open config '%s' for writing: %s\n",
+                path, strerror(errno));
+        close(fd);
         return -1;
     }
 

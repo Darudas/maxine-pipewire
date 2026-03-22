@@ -11,6 +11,7 @@
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QMap>
+#include <QPushButton>
 
 #include "dbusclient.h"
 #include "effectcard.h"
@@ -37,6 +38,8 @@ private slots:
     void onDevicesUpdated(const QVector<DeviceInfo> &devices);
     void onEffectEnableChanged(const QString &id, bool enabled);
     void onEffectIntensityChanged(const QString &id, double value);
+    void onQuickEnableDenoiser();
+    void onDisableAllEffects();
 
 private:
     void setupUi();
@@ -63,6 +66,10 @@ private:
     QWidget *m_effectsContainer;
     QVBoxLayout *m_effectsLayout;
     QMap<QString, EffectCard *> m_effectCards;
+
+    // Quick setup
+    QPushButton *m_quickDenoiserBtn;
+    QPushButton *m_quickDisableAllBtn;
 
     // Settings page
     QWidget *m_settingsPage;

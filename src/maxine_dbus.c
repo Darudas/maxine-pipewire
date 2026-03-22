@@ -3,6 +3,7 @@
 #include "maxine_audio_node.h"
 #include "maxine_loader.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,7 @@ static int method_list_effects(sd_bus_message *msg, void *userdata,
         struct maxine_audio_node *node = chain->nodes[i];
         r = sd_bus_message_append(reply, "(sbd)",
                                   node->effect_id,
-                                  node->enabled,
+                                  (int)atomic_load_explicit(&node->enabled, memory_order_relaxed),
                                   (double)node->config.intensity);
         if (r < 0)
             goto fail;
@@ -164,7 +165,8 @@ static int method_get_status(sd_bus_message *msg, void *userdata,
 
     for (int i = 0; i < chain->node_count; i++) {
         struct maxine_audio_node *node = chain->nodes[i];
-        if (node->enabled) {
+        if (atomic_load_explicit(&node->enabled, memory_order_relaxed) &&
+            node->config.sample_rate > 0) {
             total_latency_ms += (double)node->frame_size /
                                 node->config.sample_rate * 1000.0;
             active_count++;
@@ -386,6 +388,8 @@ int maxine_dbus_init(struct maxine_dbus *dbus, struct maxine_audio_chain *chain)
         fprintf(stderr, "maxine: failed to acquire bus name '%s': %s\n",
                 MAXINE_DBUS_NAME, strerror(-r));
         fprintf(stderr, "maxine: is another instance of maxined running?\n");
+        sd_bus_slot_unref(dbus->slot);
+        dbus->slot = NULL;
         sd_bus_unref(dbus->bus);
         dbus->bus = NULL;
         return r;

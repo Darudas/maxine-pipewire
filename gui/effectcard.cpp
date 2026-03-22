@@ -26,7 +26,8 @@ void ToggleSwitch::setChecked(bool checked)
     if (m_checked != checked) {
         m_checked = checked;
         update();
-        emit toggled(m_checked);
+        // Do NOT emit toggled() here — only user interaction should emit.
+        // This prevents signal feedback loops when updating state from D-Bus.
     }
 }
 
@@ -78,19 +79,24 @@ EffectCard::EffectCard(const EffectCatalogEntry &entry, QWidget *parent)
 {
     setObjectName(QStringLiteral("EffectCard"));
 
+    // Set detailed tooltip from catalog
+    if (!entry.detailedHelp.isEmpty()) {
+        setToolTip(entry.detailedHelp);
+    }
+
     auto *mainLayout = new QHBoxLayout(this);
     mainLayout->setContentsMargins(16, 14, 16, 14);
     mainLayout->setSpacing(14);
 
     // Toggle switch
     m_toggle = new ToggleSwitch(this);
-    mainLayout->addWidget(m_toggle, 0, Qt::AlignVCenter);
+    mainLayout->addWidget(m_toggle, 0, Qt::AlignTop);
 
-    // Center: name + description + category badge
+    // Center: name + description + hint
     auto *centerLayout = new QVBoxLayout();
-    centerLayout->setSpacing(3);
+    centerLayout->setSpacing(4);
 
-    // Top row: name + category badge
+    // Top row: name + recommended badge
     auto *topRow = new QHBoxLayout();
     topRow->setSpacing(10);
 
@@ -102,26 +108,28 @@ EffectCard::EffectCard(const EffectCatalogEntry &entry, QWidget *parent)
     m_nameLabel->setFont(nameFont);
     topRow->addWidget(m_nameLabel);
 
-    m_categoryBadge = new QLabel(categoryLabel(entry.category), this);
-    m_categoryBadge->setObjectName(QStringLiteral("CategoryBadge"));
-    QColor catColor = categoryColor(entry.category);
-    m_categoryBadge->setStyleSheet(
-        QString("QLabel#CategoryBadge {"
-                "  background-color: %1;"
-                "  color: #ffffff;"
-                "  border-radius: 8px;"
-                "  padding: 2px 10px;"
-                "  font-size: 10px;"
-                "  font-weight: bold;"
-                "}")
-        .arg(catColor.darker(130).name())
+    // "Empfohlen" badge for recommended effects
+    m_recommendedBadge = new QLabel(QStringLiteral("\u2605 Empfohlen"), this);
+    m_recommendedBadge->setObjectName(QStringLiteral("RecommendedBadge"));
+    m_recommendedBadge->setStyleSheet(
+        QStringLiteral("QLabel#RecommendedBadge {"
+                        "  background-color: #1a3a0a;"
+                        "  color: #76b900;"
+                        "  border: 1px solid #2a5a1a;"
+                        "  border-radius: 8px;"
+                        "  padding: 2px 10px;"
+                        "  font-size: 10px;"
+                        "  font-weight: bold;"
+                        "}")
     );
-    m_categoryBadge->setFixedHeight(20);
-    topRow->addWidget(m_categoryBadge, 0, Qt::AlignVCenter);
+    m_recommendedBadge->setFixedHeight(20);
+    m_recommendedBadge->setVisible(entry.recommended);
+    topRow->addWidget(m_recommendedBadge, 0, Qt::AlignVCenter);
 
     topRow->addStretch();
     centerLayout->addLayout(topRow);
 
+    // Description (2-line, longer text)
     m_descLabel = new QLabel(entry.description, this);
     m_descLabel->setObjectName(QStringLiteral("EffectDesc"));
     QFont descFont = m_descLabel->font();
@@ -130,29 +138,68 @@ EffectCard::EffectCard(const EffectCatalogEntry &entry, QWidget *parent)
     m_descLabel->setWordWrap(true);
     centerLayout->addWidget(m_descLabel);
 
+    // Usage hint line
+    m_hintLabel = new QLabel(this);
+    m_hintLabel->setObjectName(QStringLiteral("EffectHint"));
+    if (!entry.usageHint.isEmpty()) {
+        m_hintLabel->setText(QString::fromUtf8("\xf0\x9f\x92\xa1 ") + entry.usageHint);
+    }
+    QFont hintFont = m_hintLabel->font();
+    hintFont.setPointSize(9);
+    m_hintLabel->setFont(hintFont);
+    m_hintLabel->setWordWrap(true);
+    m_hintLabel->setVisible(!entry.usageHint.isEmpty());
+    centerLayout->addWidget(m_hintLabel);
+
     mainLayout->addLayout(centerLayout, 1);
 
     // Right: intensity slider (if applicable)
     m_sliderContainer = new QWidget(this);
+    m_sliderContainer->setFixedWidth(170);
     auto *sliderLayout = new QVBoxLayout(m_sliderContainer);
     sliderLayout->setContentsMargins(0, 0, 0, 0);
     sliderLayout->setSpacing(2);
 
+    // "Staerke: 80%" label row
+    auto *sliderTopRow = new QHBoxLayout();
+    sliderTopRow->setSpacing(4);
+
+    m_sliderLabel = new QLabel(QStringLiteral("St\u00e4rke"), this);
+    m_sliderLabel->setObjectName(QStringLiteral("SliderLabel"));
+    QFont sliderLabelFont = m_sliderLabel->font();
+    sliderLabelFont.setPointSize(10);
+    m_sliderLabel->setFont(sliderLabelFont);
+    sliderTopRow->addWidget(m_sliderLabel);
+
     m_sliderValue = new QLabel(QStringLiteral("100%"), this);
     m_sliderValue->setObjectName(QStringLiteral("SliderValue"));
-    m_sliderValue->setAlignment(Qt::AlignCenter);
+    m_sliderValue->setAlignment(Qt::AlignRight);
     QFont valFont = m_sliderValue->font();
     valFont.setPointSize(10);
     valFont.setBold(true);
     m_sliderValue->setFont(valFont);
-    sliderLayout->addWidget(m_sliderValue);
+    sliderTopRow->addWidget(m_sliderValue);
+
+    sliderLayout->addLayout(sliderTopRow);
 
     m_slider = new QSlider(Qt::Horizontal, this);
     m_slider->setObjectName(QStringLiteral("IntensitySlider"));
     m_slider->setRange(0, 100);
     m_slider->setValue(100);
-    m_slider->setFixedWidth(140);
+    m_slider->setFixedWidth(170);
     sliderLayout->addWidget(m_slider);
+
+    // Range hint: "Wenig <-----> Stark"
+    m_sliderRangeLabel = new QLabel(
+        QStringLiteral("Wenig \u25c4\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25ba Stark"),
+        this
+    );
+    m_sliderRangeLabel->setObjectName(QStringLiteral("SliderRange"));
+    QFont rangeFont = m_sliderRangeLabel->font();
+    rangeFont.setPointSize(8);
+    m_sliderRangeLabel->setFont(rangeFont);
+    m_sliderRangeLabel->setAlignment(Qt::AlignCenter);
+    sliderLayout->addWidget(m_sliderRangeLabel);
 
     mainLayout->addWidget(m_sliderContainer, 0, Qt::AlignVCenter);
 
@@ -173,7 +220,7 @@ EffectCard::EffectCard(const EffectCatalogEntry &entry, QWidget *parent)
         emit intensityChanged(m_entry.id, m_intensity);
     });
 
-    setMinimumHeight(72);
+    setMinimumHeight(100);
     updateStyle();
 }
 
@@ -210,6 +257,11 @@ double EffectCard::intensity() const
 
 QColor EffectCard::categoryColor(const QString &category)
 {
+    if (category == QLatin1String("basics"))
+        return QColor(0x3b, 0x82, 0xf6);   // Blue
+    if (category == QLatin1String("advanced"))
+        return QColor(0xa8, 0x55, 0xf7);   // Purple
+    // Legacy categories (keep for compatibility)
     if (category == QLatin1String("noise"))
         return QColor(0x3b, 0x82, 0xf6);   // Blue
     if (category == QLatin1String("echo"))
@@ -223,14 +275,10 @@ QColor EffectCard::categoryColor(const QString &category)
 
 QString EffectCard::categoryLabel(const QString &category)
 {
-    if (category == QLatin1String("noise"))
-        return QStringLiteral("Noise");
-    if (category == QLatin1String("echo"))
-        return QStringLiteral("Echo");
-    if (category == QLatin1String("enhancement"))
-        return QStringLiteral("Enhancement");
-    if (category == QLatin1String("voice"))
-        return QStringLiteral("Voice");
+    if (category == QLatin1String("basics"))
+        return QStringLiteral("Grundlagen");
+    if (category == QLatin1String("advanced"))
+        return QStringLiteral("Erweitert");
     return category;
 }
 
@@ -245,14 +293,20 @@ void EffectCard::updateStyle()
         bgColor = QColor(0x1f, 0x29, 0x37);
         m_nameLabel->setStyleSheet(QStringLiteral("color: #e5e7eb;"));
         m_descLabel->setStyleSheet(QStringLiteral("color: #9ca3af;"));
-        m_sliderValue->setStyleSheet(QStringLiteral("color: #76b900;"));
+        m_hintLabel->setStyleSheet(QStringLiteral("color: #76b900; font-size: 9px;"));
+        m_sliderValue->setStyleSheet(QStringLiteral("color: #76b900; font-weight: bold;"));
+        m_sliderLabel->setStyleSheet(QStringLiteral("color: #9ca3af;"));
+        m_sliderRangeLabel->setStyleSheet(QStringLiteral("color: #6b7280;"));
         m_slider->setEnabled(true);
     } else {
         borderColor = QColor(0x37, 0x41, 0x51);
         bgColor = QColor(0x1a, 0x1f, 0x2b);
         m_nameLabel->setStyleSheet(QStringLiteral("color: #6b7280;"));
         m_descLabel->setStyleSheet(QStringLiteral("color: #4b5563;"));
-        m_sliderValue->setStyleSheet(QStringLiteral("color: #4b5563;"));
+        m_hintLabel->setStyleSheet(QStringLiteral("color: #4b5563; font-size: 9px;"));
+        m_sliderValue->setStyleSheet(QStringLiteral("color: #4b5563; font-weight: bold;"));
+        m_sliderLabel->setStyleSheet(QStringLiteral("color: #4b5563;"));
+        m_sliderRangeLabel->setStyleSheet(QStringLiteral("color: #374151;"));
         m_slider->setEnabled(false);
     }
 

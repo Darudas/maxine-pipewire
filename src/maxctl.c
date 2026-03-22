@@ -158,7 +158,11 @@ static int cmd_status(sd_bus *bus)
     bool running = false;
 
     r = sd_bus_message_enter_container(reply, 'a', "{ss}");
-    if (r < 0) goto done;
+    if (r < 0) {
+        sd_bus_message_unref(reply);
+        sd_bus_error_free(&error);
+        return 1;
+    }
 
     while ((r = sd_bus_message_enter_container(reply, 'e', "ss")) > 0) {
         const char *key = NULL, *val = NULL;
@@ -221,35 +225,35 @@ static int cmd_status(sd_bus *bus)
     printf("%sEffects:%s\n", COL(C_BOLD), COL(C_RESET));
 
     r = sd_bus_message_enter_container(reply, 'a', "(sbd)");
-    if (r < 0) goto done;
+    if (r >= 0) {
+        while ((r = sd_bus_message_enter_container(reply, 'r', "sbd")) > 0) {
+            const char *name = NULL;
+            int enabled = 0;
+            double intensity = 0;
 
-    while ((r = sd_bus_message_enter_container(reply, 'r', "sbd")) > 0) {
-        const char *name = NULL;
-        int enabled = 0;
-        double intensity = 0;
+            r = sd_bus_message_read(reply, "sbd", &name, &enabled, &intensity);
+            if (r < 0) break;
 
-        r = sd_bus_message_read(reply, "sbd", &name, &enabled, &intensity);
-        if (r < 0) break;
+            const struct effect_info *info = find_effect_info(name);
+            const char *display_name = info ? info->name : name;
 
-        const struct effect_info *info = find_effect_info(name);
-        const char *display_name = info ? info->name : name;
+            if (enabled) {
+                printf("  %s\xe2\x97\x8f%s %-28s%senabled%s",
+                       COL(C_GREEN), COL(C_RESET),
+                       display_name,
+                       COL(C_GREEN), COL(C_RESET));
+                printf("   intensity: %s%.2f%s\n", COL(C_YELLOW),
+                       intensity, COL(C_RESET));
+            } else {
+                printf("  %s\xe2\x97\x8b %-28s%sdisabled%s\n",
+                       COL(C_DIM),
+                       display_name, COL(C_DIM), COL(C_RESET));
+            }
 
-        if (enabled) {
-            printf("  %s\xe2\x97\x8f%s %-28s%senabled%s",
-                   COL(C_GREEN), COL(C_RESET),
-                   display_name,
-                   COL(C_GREEN), COL(C_RESET));
-            printf("   intensity: %s%.2f%s\n", COL(C_YELLOW),
-                   intensity, COL(C_RESET));
-        } else {
-            printf("  %s\xe2\x97\x8b %-28s%sdisabled%s\n",
-                   COL(C_DIM),
-                   display_name, COL(C_DIM), COL(C_RESET));
+            sd_bus_message_exit_container(reply);
         }
-
         sd_bus_message_exit_container(reply);
     }
-    sd_bus_message_exit_container(reply);
 
     // Print audio info
     uint32_t sr = (uint32_t)atoi(sample_rate_str);
@@ -262,7 +266,6 @@ static int cmd_status(sd_bus *bus)
     printf("%sFrames processed:%s %s\n", COL(C_BOLD), COL(C_RESET), frames);
     printf("\n");
 
-done:
     sd_bus_message_unref(reply);
     sd_bus_error_free(&error);
     return 0;

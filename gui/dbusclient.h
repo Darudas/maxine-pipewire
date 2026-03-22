@@ -72,11 +72,13 @@ private slots:
 private:
     void ensureInterface();
     bool checkDaemon();
+    void updateConnectionState(bool nowConnected);
 
     QDBusInterface *m_iface;
     QTimer *m_pollTimer;
     bool m_connected;
     bool m_wasConnected;
+    bool m_destroying;
 
     static const QString s_service;
     static const QString s_path;

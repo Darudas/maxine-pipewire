@@ -41,7 +41,6 @@ struct maxine_sdk {
     void *lib_handle;
 
     // Required functions — always loaded
-    fn_NvAFX_GetEffectList  GetEffectList;
     fn_NvAFX_CreateEffect   CreateEffect;
     fn_NvAFX_DestroyEffect  DestroyEffect;
     fn_NvAFX_SetString      SetString;
@@ -54,6 +53,7 @@ struct maxine_sdk {
     fn_NvAFX_Reset          Reset;
 
     // Optional functions — NULL if not available in loaded SDK
+    fn_NvAFX_GetEffectList       GetEffectList;
     fn_NvAFX_CreateChainedEffect CreateChainedEffect;
     fn_NvAFX_SetFloatList        SetFloatList;
     fn_NvAFX_SetU32List          SetU32List;

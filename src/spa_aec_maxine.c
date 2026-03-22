@@ -91,6 +91,7 @@ static int load_effect(struct impl *impl, NvAFX_Handle *handle,
     st = impl->sdk.CreateEffect(effect, handle);
     if (st != NVAFX_STATUS_SUCCESS) {
         spa_log_error_maxine(impl, "CreateEffect(%s) failed: %s", effect, nvafx_status_str(st));
+        *handle = NULL;
         return -1;
     }
 
@@ -107,13 +108,13 @@ static int load_effect(struct impl *impl, NvAFX_Handle *handle,
     }
     if (st != NVAFX_STATUS_SUCCESS) {
         spa_log_error_maxine(impl, "SetModel(%s) failed: %s", model, nvafx_status_str(st));
-        return -1;
+        goto fail;
     }
 
     st = impl->sdk.SetU32(*handle, NVAFX_PARAM_INPUT_SAMPLE_RATE, impl->sample_rate);
     if (st != NVAFX_STATUS_SUCCESS) {
         spa_log_error_maxine(impl, "SetU32(sample_rate, %u) failed: %s", impl->sample_rate, nvafx_status_str(st));
-        return -1;
+        goto fail;
     }
 
     st = impl->sdk.SetU32(*handle, NVAFX_PARAM_NUM_STREAMS, 1);
@@ -129,11 +130,16 @@ static int load_effect(struct impl *impl, NvAFX_Handle *handle,
     st = impl->sdk.Load(*handle);
     if (st != NVAFX_STATUS_SUCCESS) {
         spa_log_error_maxine(impl, "Load() failed: %s", nvafx_status_str(st));
-        return -1;
+        goto fail;
     }
 
     spa_log_info_maxine(impl, "model loaded successfully");
     return 0;
+
+fail:
+    impl->sdk.DestroyEffect(*handle);
+    *handle = NULL;
+    return -1;
 }
 
 static int impl_init(void *object, const struct spa_dict *args,
@@ -145,6 +151,13 @@ static int impl_init(void *object, const struct spa_dict *args,
     impl->sample_rate = info->rate;
     impl->channels = info->channels;
 
+    // Validate channel count
+    if (impl->channels == 0 || impl->channels > MAX_CHANNELS) {
+        spa_log_error_maxine(impl, "unsupported channel count %u (max %u)",
+                             impl->channels, MAX_CHANNELS);
+        return -EINVAL;
+    }
+
     // Read config from PipeWire args
     val = spa_dict_lookup(args, "maxine.model-path");
     if (val)
@@ -155,8 +168,12 @@ static int impl_init(void *object, const struct spa_dict *args,
         snprintf(impl->sdk_lib_path, sizeof(impl->sdk_lib_path), "%s", val);
 
     val = spa_dict_lookup(args, "maxine.intensity");
-    if (val)
-        impl->intensity = atof(val);
+    if (val) {
+        float v = (float)atof(val);
+        if (v < 0.0f) v = 0.0f;
+        if (v > 1.0f) v = 1.0f;
+        impl->intensity = v;
+    }
 
     val = spa_dict_lookup(args, "maxine.denoise");
     if (val)
@@ -180,8 +197,10 @@ static int impl_init(void *object, const struct spa_dict *args,
     spa_log_info_maxine(impl, "SDK loaded");
 
     // Load AEC effect
-    if (load_effect(impl, &impl->fx_aec, NVAFX_EFFECT_AEC, "aec") < 0)
+    if (load_effect(impl, &impl->fx_aec, NVAFX_EFFECT_AEC, "aec") < 0) {
+        maxine_sdk_unload(&impl->sdk);
         return -EIO;
+    }
 
     // Query frame size from SDK
     unsigned int fs = 0;
@@ -202,6 +221,13 @@ static int impl_init(void *object, const struct spa_dict *args,
 
     if (!alloc_buffers(impl, impl->frame_size)) {
         spa_log_error_maxine(impl, "failed to allocate buffers");
+        if (impl->fx_denoise) {
+            impl->sdk.DestroyEffect(impl->fx_denoise);
+            impl->fx_denoise = NULL;
+        }
+        impl->sdk.DestroyEffect(impl->fx_aec);
+        impl->fx_aec = NULL;
+        maxine_sdk_unload(&impl->sdk);
         return -ENOMEM;
     }
 
@@ -215,6 +241,9 @@ static int impl_run(void *object, const float *rec[], const float *play[],
     NvAFX_Status st;
     uint32_t channels = impl->channels;
     uint32_t fs = impl->frame_size;
+
+    if (channels == 0 || channels > MAX_CHANNELS || fs == 0 || !impl->mono_rec)
+        return -EINVAL;
 
     // Process in frame_size chunks
     for (uint32_t offset = 0; offset < n_samples; offset += fs) {

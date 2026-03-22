@@ -35,8 +35,11 @@ struct EffectCatalogEntry {
     QString id;
     QString displayName;
     QString description;
-    QString category;       // "noise", "echo", "enhancement", "voice"
+    QString category;       // "basics", "advanced"
     bool hasIntensity;
+    QString detailedHelp;   // longer explanation shown in tooltip
+    QString usageHint;      // "Empfohlen fuer: ..." one-liner
+    bool recommended;       // show a "Empfohlen" badge
 };
 
 class EffectCard : public QWidget
@@ -66,9 +69,12 @@ private:
     ToggleSwitch *m_toggle;
     QLabel *m_nameLabel;
     QLabel *m_descLabel;
-    QLabel *m_categoryBadge;
+    QLabel *m_hintLabel;
+    QLabel *m_recommendedBadge;
     QSlider *m_slider;
+    QLabel *m_sliderLabel;
     QLabel *m_sliderValue;
+    QLabel *m_sliderRangeLabel;
     QWidget *m_sliderContainer;
     bool m_effectEnabled;
     double m_intensity;

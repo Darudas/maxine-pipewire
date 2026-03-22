@@ -4,6 +4,7 @@
 #pragma once
 
 #include <pipewire/pipewire.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -30,7 +31,7 @@ struct maxine_audio_node {
     char effect_selector[128];
     char model_subdir[128];
     char model_path[4096];
-    bool enabled;
+    atomic_bool enabled;          // written from main thread, read from RT thread
     uint32_t frame_size;          // samples per SDK frame
 
     // Internal processing buffers
@@ -45,8 +46,6 @@ struct maxine_audio_node {
     // Stats
     uint64_t frames_processed;
     double avg_process_time_us;
-    double _time_accum;
-    uint64_t _time_count;
 };
 
 // Create a new audio effect node. The node creates a pw_filter with input/output ports.

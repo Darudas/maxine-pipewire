@@ -19,60 +19,133 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
-// Build the static effect catalog (matches maxctl)
+// Build the static effect catalog — German UI, 2 categories
 static QVector<EffectCatalogEntry> buildCatalog()
 {
     QVector<EffectCatalogEntry> cat;
 
+    // ---- Grundlagen (Basics) ----
+
     cat.append({QStringLiteral("denoiser"),
-                QStringLiteral("Noise Removal"),
-                QStringLiteral("Remove background noise (typing, fans, etc.)"),
-                QStringLiteral("noise"), true});
+                QStringLiteral("Rauschunterdr\u00fcckung"),
+                QStringLiteral("Entfernt Hintergrundger\u00e4usche wie Tastaturklappern, "
+                               "L\u00fcfter, Stra\u00dfenl\u00e4rm und andere "
+                               "Umgebungsger\u00e4usche aus dem Mikrofonsignal."),
+                QStringLiteral("basics"), true,
+                QStringLiteral("Die Rauschunterdr\u00fcckung analysiert dein Audiosignal in Echtzeit "
+                               "und filtert alle nicht-sprachlichen Ger\u00e4usche heraus. "
+                               "Die St\u00e4rke bestimmt, wie aggressiv gefiltert wird \u2014 "
+                               "h\u00f6here Werte entfernen mehr Ger\u00e4usche, k\u00f6nnen aber "
+                               "die Stimmqualit\u00e4t leicht beeintr\u00e4chtigen."),
+                QStringLiteral("Empfohlen f\u00fcr: Calls, Gaming, Streaming"),
+                true});
 
     cat.append({QStringLiteral("dereverb"),
-                QStringLiteral("Room Echo Removal"),
-                QStringLiteral("Remove room reverberation/echo"),
-                QStringLiteral("noise"), true});
+                QStringLiteral("Hall-Entfernung"),
+                QStringLiteral("Reduziert den Raumhall und l\u00e4sst dein Mikrofon klingen, "
+                               "als w\u00e4rst du in einem professionellen Studio ohne Echo "
+                               "von den W\u00e4nden."),
+                QStringLiteral("basics"), true,
+                QStringLiteral("Raumhall entsteht durch Schallreflexionen an W\u00e4nden, "
+                               "Decken und harten Oberfl\u00e4chen. Dieser Effekt entfernt "
+                               "den Nachhall und macht die Stimme klarer und direkter."),
+                QStringLiteral("Empfohlen f\u00fcr: Gro\u00dfe R\u00e4ume, Badezimmer, leere Zimmer"),
+                false});
 
     cat.append({QStringLiteral("dereverb-denoiser"),
-                QStringLiteral("Noise + Room Echo Removal"),
-                QStringLiteral("Combined single-pass (lower latency)"),
-                QStringLiteral("noise"), true});
+                QStringLiteral("Rauschen + Hall (Kombi)"),
+                QStringLiteral("Kombiniert Rauschunterdr\u00fcckung und Hall-Entfernung in einem "
+                               "einzigen Durchgang. Weniger Latenz als beide einzeln zu aktivieren."),
+                QStringLiteral("basics"), true,
+                QStringLiteral("Dieser kombinierte Effekt f\u00fchrt beide Verarbeitungsschritte "
+                               "in einem einzigen GPU-Pass durch, was die Verz\u00f6gerung "
+                               "gegen\u00fcber zwei einzelnen Effekten deutlich reduziert."),
+                QStringLiteral("Alternative zu: Denoiser + Dereverb einzeln"),
+                true});
 
     cat.append({QStringLiteral("aec"),
-                QStringLiteral("Acoustic Echo Cancellation"),
-                QStringLiteral("Remove speaker playback from microphone"),
-                QStringLiteral("echo"), true});
+                QStringLiteral("Echo-Unterdr\u00fcckung"),
+                QStringLiteral("Filtert Sounds die aus deinen Lautsprechern kommen aus dem "
+                               "Mikrofon raus. So h\u00f6ren deine Gespr\u00e4chspartner nicht "
+                               "was du gerade abspielst."),
+                QStringLiteral("basics"), true,
+                QStringLiteral("Acoustic Echo Cancellation (AEC) erkennt das Audiosignal, das "
+                               "aus deinen Lautsprechern kommt, und subtrahiert es vom "
+                               "Mikrofonsignal. Essentiell wenn du ohne Kopfh\u00f6rer arbeitest."),
+                QStringLiteral("Empfohlen f\u00fcr: Wenn du ohne Kopfh\u00f6rer spielst/redest"),
+                true});
+
+    // ---- Erweitert (Advanced) ----
 
     cat.append({QStringLiteral("superres"),
                 QStringLiteral("Audio Super Resolution"),
-                QStringLiteral("Upscale low-quality audio (8/16kHz -> 48kHz)"),
-                QStringLiteral("enhancement"), false});
+                QStringLiteral("Verbessert die Qualit\u00e4t von niedrig aufgel\u00f6sten "
+                               "Audiosignalen (8/16 kHz) auf 48 kHz. N\u00fctzlich bei "
+                               "schlechten Mikrofonen oder VoIP."),
+                QStringLiteral("advanced"), false,
+                QStringLiteral("Super Resolution verwendet ein neuronales Netzwerk, um fehlende "
+                               "Frequenzen in niedrig aufgel\u00f6sten Audiosignalen zu "
+                               "rekonstruieren. Das Ergebnis klingt nat\u00fcrlicher und klarer."),
+                QStringLiteral("Speziell f\u00fcr: USB-Headsets mit niedriger Samplerate"),
+                false});
 
     cat.append({QStringLiteral("studio-voice-hq"),
-                QStringLiteral("Studio Voice (High Quality)"),
-                QStringLiteral("Make any mic sound professional"),
-                QStringLiteral("enhancement"), false});
+                QStringLiteral("Studio-Stimme (Hohe Qualit\u00e4t)"),
+                QStringLiteral("L\u00e4sst jedes Mikrofon wie ein professionelles Studiomikrofon "
+                               "klingen. Verbessert Klarheit und W\u00e4rme der Stimme, "
+                               "h\u00f6here Latenz."),
+                QStringLiteral("advanced"), false,
+                QStringLiteral("Dieser Effekt wendet ein trainiertes Modell an, das die "
+                               "Klangeigenschaften eines hochwertigen Studiomikrofons simuliert. "
+                               "Die HQ-Variante hat h\u00f6here Qualit\u00e4t, aber mehr "
+                               "Verz\u00f6gerung."),
+                QStringLiteral("Speziell f\u00fcr: Podcasts, Aufnahmen, Pr\u00e4sentationen"),
+                false});
 
     cat.append({QStringLiteral("studio-voice-ll"),
-                QStringLiteral("Studio Voice (Low Latency)"),
-                QStringLiteral("Studio quality with lower latency"),
-                QStringLiteral("enhancement"), false});
+                QStringLiteral("Studio-Stimme (Geringe Latenz)"),
+                QStringLiteral("Gleicher Effekt wie Studio-Stimme, aber mit weniger "
+                               "Verz\u00f6gerung. Leicht geringere Qualit\u00e4t, daf\u00fcr "
+                               "besser f\u00fcr Live-Gespr\u00e4che."),
+                QStringLiteral("advanced"), false,
+                QStringLiteral("Die Low-Latency-Variante des Studio-Voice-Effekts. "
+                               "Geeignet f\u00fcr Echtzeit-Kommunikation, wo die HQ-Variante "
+                               "zu viel Verz\u00f6gerung verursacht."),
+                QStringLiteral("Speziell f\u00fcr: Live-Calls wenn Studio-Voice zu langsam ist"),
+                false});
 
     cat.append({QStringLiteral("speaker-focus"),
-                QStringLiteral("Speaker Focus"),
-                QStringLiteral("Isolate main speaker, remove others"),
-                QStringLiteral("voice"), true});
+                QStringLiteral("Sprecher-Fokus"),
+                QStringLiteral("Isoliert deine Stimme und entfernt alle anderen Sprecher im "
+                               "Raum. Nur die lauteste/n\u00e4chste Stimme wird durchgelassen."),
+                QStringLiteral("advanced"), true,
+                QStringLiteral("Speaker Focus verwendet Richtungserkennung und Stimmseparation, "
+                               "um nur den Hauptsprecher durchzulassen. Alle anderen Stimmen "
+                               "im Raum werden unterdr\u00fcckt."),
+                QStringLiteral("Speziell f\u00fcr: B\u00fcro, Co-Working, wenn andere im Raum reden"),
+                false});
 
     cat.append({QStringLiteral("voice-font-hq"),
-                QStringLiteral("Voice Font (High Quality)"),
-                QStringLiteral("Change voice to match reference"),
-                QStringLiteral("voice"), false});
+                QStringLiteral("Stimmenver\u00e4nderung (HQ)"),
+                QStringLiteral("Wandelt deine Stimme um, sodass sie wie eine Referenzstimme "
+                               "klingt. Ben\u00f6tigt eine WAV-Datei als Vorlage."),
+                QStringLiteral("advanced"), false,
+                QStringLiteral("Voice Font konvertiert die Klangeigenschaften deiner Stimme "
+                               "in die einer Referenzaufnahme. Tonlage, Timbre und "
+                               "Sprechcharakteristik werden \u00fcbernommen."),
+                QStringLiteral("Speziell f\u00fcr: Content Creation, Unterhaltung"),
+                false});
 
     cat.append({QStringLiteral("voice-font-ll"),
-                QStringLiteral("Voice Font (Low Latency)"),
-                QStringLiteral("Voice conversion with lower latency"),
-                QStringLiteral("voice"), false});
+                QStringLiteral("Stimmenver\u00e4nderung (Geringe Latenz)"),
+                QStringLiteral("Gleiche Stimmver\u00e4nderung, aber schneller. Geringere "
+                               "Qualit\u00e4t, daf\u00fcr nutzbar in Echtzeit-Gespr\u00e4chen."),
+                QStringLiteral("advanced"), false,
+                QStringLiteral("Die Low-Latency-Variante der Stimmver\u00e4nderung. "
+                               "Weniger pr\u00e4zise Konvertierung, aber nutzbar ohne "
+                               "sp\u00fcrbare Verz\u00f6gerung in Live-Situationen."),
+                QStringLiteral("Speziell f\u00fcr: Live-Nutzung der Stimmver\u00e4nderung"),
+                false});
 
     return cat;
 }
@@ -85,7 +158,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     m_catalog = buildCatalog();
 
-    setWindowTitle(QStringLiteral("Maxine PipeWire"));
+    setWindowTitle(QStringLiteral("Maxine PipeWire \u2014 NVIDIA Audio-Effekte f\u00fcr Linux"));
     resize(960, 720);
     setMinimumSize(740, 520);
 
@@ -169,7 +242,7 @@ void MainWindow::setupUi()
     titleLabel->setStyleSheet(QStringLiteral("color: #e5e7eb; margin-left: 10px;"));
     titleLayout->addWidget(titleLabel);
 
-    auto *subtitleLabel = new QLabel(QStringLiteral("NVIDIA Audio Effects for Linux"), this);
+    auto *subtitleLabel = new QLabel(QStringLiteral("NVIDIA Audio-Effekte f\u00fcr Linux"), this);
     QFont subFont = subtitleLabel->font();
     subFont.setPointSize(9);
     subtitleLabel->setFont(subFont);
@@ -230,7 +303,7 @@ void MainWindow::setupUi()
     auto *overlayLayout = new QVBoxLayout(m_disconnectedOverlay);
     overlayLayout->setAlignment(Qt::AlignCenter);
 
-    auto *disconnIcon = new QLabel(this);
+    auto *disconnIcon = new QLabel(m_disconnectedOverlay);
     disconnIcon->setText(QStringLiteral("!"));
     disconnIcon->setAlignment(Qt::AlignCenter);
     disconnIcon->setFixedSize(64, 64);
@@ -244,7 +317,7 @@ void MainWindow::setupUi()
     overlayLayout->addWidget(disconnIcon, 0, Qt::AlignCenter);
 
     auto *disconnTitle = new QLabel(
-        QStringLiteral("Daemon Not Running"), this
+        QStringLiteral("Daemon nicht erreichbar"), m_disconnectedOverlay
     );
     QFont disconnFont = disconnTitle->font();
     disconnFont.setPointSize(18);
@@ -255,16 +328,16 @@ void MainWindow::setupUi()
     overlayLayout->addWidget(disconnTitle, 0, Qt::AlignCenter);
 
     auto *disconnDesc = new QLabel(
-        QStringLiteral("The maxined daemon is not running or not reachable via D-Bus.\n"
-                        "Start it with the command below:"),
-        this
+        QStringLiteral("Der maxined-Daemon l\u00e4uft nicht oder ist nicht \u00fcber D-Bus erreichbar.\n"
+                        "Starte ihn mit folgendem Befehl:"),
+        m_disconnectedOverlay
     );
     disconnDesc->setStyleSheet(QStringLiteral("color: #9ca3af; margin-top: 8px;"));
     disconnDesc->setAlignment(Qt::AlignCenter);
     overlayLayout->addWidget(disconnDesc, 0, Qt::AlignCenter);
 
     auto *cmdLabel = new QLabel(
-        QStringLiteral("systemctl --user start maxined"), this
+        QStringLiteral("systemctl --user start maxined"), m_disconnectedOverlay
     );
     cmdLabel->setStyleSheet(
         QStringLiteral("background-color: #1f2937;"
@@ -281,7 +354,8 @@ void MainWindow::setupUi()
     overlayLayout->addWidget(cmdLabel, 0, Qt::AlignCenter);
 
     auto *hintLabel = new QLabel(
-        QStringLiteral("The GUI will automatically connect when the daemon starts."), this
+        QStringLiteral("Die GUI verbindet sich automatisch, sobald der Daemon l\u00e4uft."),
+        m_disconnectedOverlay
     );
     hintLabel->setStyleSheet(QStringLiteral("color: #6b7280; margin-top: 16px; font-size: 10px;"));
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -311,14 +385,14 @@ void MainWindow::setupSidebar()
     m_sidebar->addItem(audioItem);
 
     // Video section (greyed out)
-    auto *videoItem = new QListWidgetItem(QStringLiteral("  Video"));
+    auto *videoItem = new QListWidgetItem(QStringLiteral("  Video (bald)"));
     videoItem->setSizeHint(QSize(180, 44));
     videoItem->setFlags(videoItem->flags() & ~Qt::ItemIsEnabled);
-    videoItem->setToolTip(QStringLiteral("Coming soon"));
+    videoItem->setToolTip(QStringLiteral("Kommt bald"));
     m_sidebar->addItem(videoItem);
 
     // Settings section
-    auto *settingsItem = new QListWidgetItem(QStringLiteral("  Settings"));
+    auto *settingsItem = new QListWidgetItem(QStringLiteral("  Einstellungen"));
     settingsItem->setSizeHint(QSize(180, 44));
     m_sidebar->addItem(settingsItem);
 
@@ -362,13 +436,22 @@ void MainWindow::setupAudioPage()
     pageLayout->setSpacing(16);
 
     // Page header
-    auto *headerLabel = new QLabel(QStringLiteral("Audio Effects"), this);
+    auto *headerLabel = new QLabel(QStringLiteral("Audio-Effekte"), this);
     QFont headerFont = headerLabel->font();
     headerFont.setPointSize(18);
     headerFont.setBold(true);
     headerLabel->setFont(headerFont);
     headerLabel->setStyleSheet(QStringLiteral("color: #e5e7eb;"));
     pageLayout->addWidget(headerLabel);
+
+    auto *headerSubLabel = new QLabel(
+        QStringLiteral("GPU-beschleunigte Audioeffekte f\u00fcr dein Mikrofon. "
+                        "Aktiviere Effekte per Schalter."),
+        this
+    );
+    headerSubLabel->setStyleSheet(QStringLiteral("color: #9ca3af; font-size: 11px; margin-bottom: 4px;"));
+    headerSubLabel->setWordWrap(true);
+    pageLayout->addWidget(headerSubLabel);
 
     // Device selector
     auto *deviceWidget = new QWidget(this);
@@ -384,7 +467,7 @@ void MainWindow::setupAudioPage()
     auto *deviceLayout = new QHBoxLayout(deviceWidget);
     deviceLayout->setContentsMargins(14, 10, 14, 10);
 
-    auto *deviceLabel = new QLabel(QStringLiteral("Input Device"), this);
+    auto *deviceLabel = new QLabel(QStringLiteral("Eingabeger\u00e4t"), this);
     QFont devFont = deviceLabel->font();
     devFont.setPointSize(11);
     devFont.setBold(true);
@@ -395,7 +478,7 @@ void MainWindow::setupAudioPage()
     m_deviceCombo = new QComboBox(this);
     m_deviceCombo->setMinimumWidth(280);
     m_deviceCombo->setFixedHeight(32);
-    m_deviceCombo->addItem(QStringLiteral("Default (waiting for daemon...)"));
+    m_deviceCombo->addItem(QStringLiteral("Standard (warte auf Daemon...)"));
     m_deviceCombo->setStyleSheet(
         QStringLiteral(
             "QComboBox {"
@@ -429,6 +512,95 @@ void MainWindow::setupAudioPage()
     deviceLayout->addWidget(m_deviceCombo, 1);
 
     pageLayout->addWidget(deviceWidget);
+
+    // Quick Setup section
+    auto *quickWidget = new QWidget(this);
+    quickWidget->setObjectName(QStringLiteral("QuickSetup"));
+    quickWidget->setStyleSheet(
+        QStringLiteral("QWidget#QuickSetup {"
+                        "  background-color: #1a2a1a;"
+                        "  border: 1px solid #2a4a1a;"
+                        "  border-radius: 10px;"
+                        "  padding: 6px;"
+                        "}")
+    );
+    auto *quickLayout = new QVBoxLayout(quickWidget);
+    quickLayout->setContentsMargins(14, 10, 14, 10);
+    quickLayout->setSpacing(8);
+
+    auto *quickTitle = new QLabel(QStringLiteral("Schnellstart"), this);
+    QFont quickTitleFont = quickTitle->font();
+    quickTitleFont.setPointSize(11);
+    quickTitleFont.setBold(true);
+    quickTitle->setFont(quickTitleFont);
+    quickTitle->setStyleSheet(QStringLiteral("color: #76b900;"));
+    quickLayout->addWidget(quickTitle);
+
+    auto *quickDesc = new QLabel(
+        QStringLiteral("F\u00fcr die meisten Nutzer reicht der Denoiser. "
+                        "Aktiviere weitere Effekte nur wenn n\u00f6tig."),
+        this
+    );
+    quickDesc->setStyleSheet(QStringLiteral("color: #9ca3af; font-size: 10px;"));
+    quickDesc->setWordWrap(true);
+    quickLayout->addWidget(quickDesc);
+
+    auto *quickBtnRow = new QHBoxLayout();
+    quickBtnRow->setSpacing(10);
+
+    m_quickDenoiserBtn = new QPushButton(
+        QStringLiteral("\u2713 Denoiser aktivieren"), this
+    );
+    m_quickDenoiserBtn->setFixedHeight(32);
+    m_quickDenoiserBtn->setCursor(Qt::PointingHandCursor);
+    m_quickDenoiserBtn->setStyleSheet(
+        QStringLiteral(
+            "QPushButton {"
+            "  background-color: #1a3a0a;"
+            "  color: #76b900;"
+            "  border: 1px solid #76b900;"
+            "  border-radius: 6px;"
+            "  padding: 4px 16px;"
+            "  font-size: 11px;"
+            "  font-weight: bold;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #2a4a1a;"
+            "}"
+        )
+    );
+    connect(m_quickDenoiserBtn, &QPushButton::clicked,
+            this, &MainWindow::onQuickEnableDenoiser);
+    quickBtnRow->addWidget(m_quickDenoiserBtn);
+
+    m_quickDisableAllBtn = new QPushButton(
+        QStringLiteral("Alle deaktivieren"), this
+    );
+    m_quickDisableAllBtn->setFixedHeight(32);
+    m_quickDisableAllBtn->setCursor(Qt::PointingHandCursor);
+    m_quickDisableAllBtn->setStyleSheet(
+        QStringLiteral(
+            "QPushButton {"
+            "  background-color: #374151;"
+            "  color: #e5e7eb;"
+            "  border: 1px solid #4b5563;"
+            "  border-radius: 6px;"
+            "  padding: 4px 16px;"
+            "  font-size: 11px;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #4b5563;"
+            "}"
+        )
+    );
+    connect(m_quickDisableAllBtn, &QPushButton::clicked,
+            this, &MainWindow::onDisableAllEffects);
+    quickBtnRow->addWidget(m_quickDisableAllBtn);
+
+    quickBtnRow->addStretch();
+    quickLayout->addLayout(quickBtnRow);
+
+    pageLayout->addWidget(quickWidget);
 
     // Scrollable effects area
     m_effectsScroll = new QScrollArea(this);
@@ -480,7 +652,7 @@ void MainWindow::setupSettingsPage()
     pageLayout->setSpacing(20);
 
     // Page header
-    auto *headerLabel = new QLabel(QStringLiteral("Settings"), this);
+    auto *headerLabel = new QLabel(QStringLiteral("Einstellungen"), this);
     QFont headerFont = headerLabel->font();
     headerFont.setPointSize(18);
     headerFont.setBold(true);
@@ -502,7 +674,7 @@ void MainWindow::setupSettingsPage()
     modelLayout->setContentsMargins(18, 14, 18, 14);
     modelLayout->setSpacing(8);
 
-    auto *modelTitle = new QLabel(QStringLiteral("Model Path"), this);
+    auto *modelTitle = new QLabel(QStringLiteral("Modell-Pfad"), this);
     QFont mFont = modelTitle->font();
     mFont.setPointSize(12);
     mFont.setBold(true);
@@ -533,7 +705,7 @@ void MainWindow::setupSettingsPage()
     srLayout->setContentsMargins(18, 14, 18, 14);
     srLayout->setSpacing(8);
 
-    auto *srTitle = new QLabel(QStringLiteral("Sample Rate"), this);
+    auto *srTitle = new QLabel(QStringLiteral("Abtastrate"), this);
     srTitle->setFont(mFont);
     srTitle->setStyleSheet(QStringLiteral("color: #d1d5db;"));
     srLayout->addWidget(srTitle);
@@ -543,7 +715,7 @@ void MainWindow::setupSettingsPage()
     srLayout->addWidget(m_sampleRateLabel);
 
     auto *srHint = new QLabel(
-        QStringLiteral("Supported: 16000 Hz, 48000 Hz. Change in config.toml and reload."),
+        QStringLiteral("Unterst\u00fctzt: 16000 Hz, 48000 Hz. \u00c4nderbar in config.toml, danach neu laden."),
         this
     );
     srHint->setStyleSheet(QStringLiteral("color: #6b7280; font-size: 10px;"));
@@ -566,7 +738,7 @@ void MainWindow::setupSettingsPage()
     configLayout->setContentsMargins(18, 14, 18, 14);
     configLayout->setSpacing(8);
 
-    auto *configTitle = new QLabel(QStringLiteral("Configuration"), this);
+    auto *configTitle = new QLabel(QStringLiteral("Konfiguration"), this);
     configTitle->setFont(mFont);
     configTitle->setStyleSheet(QStringLiteral("color: #d1d5db;"));
     configLayout->addWidget(configTitle);
@@ -582,7 +754,7 @@ void MainWindow::setupSettingsPage()
     configPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     configRow->addWidget(configPathLabel, 1);
 
-    auto *openConfigBtn = new QPushButton(QStringLiteral("Open in Editor"), this);
+    auto *openConfigBtn = new QPushButton(QStringLiteral("Im Editor \u00f6ffnen"), this);
     openConfigBtn->setFixedHeight(30);
     openConfigBtn->setCursor(Qt::PointingHandCursor);
     openConfigBtn->setStyleSheet(
@@ -605,7 +777,7 @@ void MainWindow::setupSettingsPage()
     });
     configRow->addWidget(openConfigBtn);
 
-    auto *reloadBtn = new QPushButton(QStringLiteral("Reload Config"), this);
+    auto *reloadBtn = new QPushButton(QStringLiteral("Konfig neu laden"), this);
     reloadBtn->setFixedHeight(30);
     reloadBtn->setCursor(Qt::PointingHandCursor);
     reloadBtn->setStyleSheet(
@@ -647,17 +819,17 @@ void MainWindow::setupSettingsPage()
     aboutLayout->setContentsMargins(18, 14, 18, 14);
     aboutLayout->setSpacing(6);
 
-    auto *aboutTitle = new QLabel(QStringLiteral("About"), this);
+    auto *aboutTitle = new QLabel(QStringLiteral("\u00dcber"), this);
     aboutTitle->setFont(mFont);
     aboutTitle->setStyleSheet(QStringLiteral("color: #d1d5db;"));
     aboutLayout->addWidget(aboutTitle);
 
     auto *aboutText = new QLabel(
         QStringLiteral("Maxine PipeWire v0.1.0\n"
-                        "NVIDIA Broadcast for Linux\n\n"
-                        "GPU-accelerated audio effects via NVIDIA Maxine AFX SDK\n"
-                        "with native PipeWire integration.\n\n"
-                        "License: MIT"),
+                        "NVIDIA Broadcast f\u00fcr Linux\n\n"
+                        "GPU-beschleunigte Audioeffekte \u00fcber das NVIDIA Maxine AFX SDK\n"
+                        "mit nativer PipeWire-Integration.\n\n"
+                        "Lizenz: MIT"),
         this
     );
     aboutText->setStyleSheet(QStringLiteral("color: #9ca3af; font-size: 11px;"));
@@ -676,31 +848,43 @@ void MainWindow::setupDisconnectedPage()
 
 void MainWindow::buildEffectCards()
 {
-    // Group effects by category for visual grouping
+    // Two groups: Grundlagen (basics) and Erweitert (advanced)
     struct CategoryGroup {
         QString category;
         QString label;
+        QString description;
     };
     QVector<CategoryGroup> groups = {
-        {QStringLiteral("noise"), QStringLiteral("Noise Reduction")},
-        {QStringLiteral("echo"), QStringLiteral("Echo Cancellation")},
-        {QStringLiteral("enhancement"), QStringLiteral("Audio Enhancement")},
-        {QStringLiteral("voice"), QStringLiteral("Voice Processing")},
+        {QStringLiteral("basics"),
+         QStringLiteral("Grundlagen"),
+         QStringLiteral("Diese Effekte verbessern die Audioqualit\u00e4t f\u00fcr die meisten Anwendungsf\u00e4lle.")},
+        {QStringLiteral("advanced"),
+         QStringLiteral("Erweitert"),
+         QStringLiteral("Spezialeffekte f\u00fcr professionelle Nutzung. K\u00f6nnen die Latenz erh\u00f6hen.")},
     };
 
     for (const auto &group : groups) {
         // Category header
         auto *catLabel = new QLabel(group.label, this);
         QFont catFont = catLabel->font();
-        catFont.setPointSize(11);
+        catFont.setPointSize(12);
         catFont.setBold(true);
         catLabel->setFont(catFont);
         QColor catColor = EffectCard::categoryColor(group.category);
         catLabel->setStyleSheet(
-            QString("color: %1; margin-top: 8px; margin-bottom: 2px;")
+            QString("color: %1; margin-top: 12px; margin-bottom: 0px;")
             .arg(catColor.name())
         );
         m_effectsLayout->addWidget(catLabel);
+
+        // Category description
+        auto *catDesc = new QLabel(group.description, this);
+        QFont catDescFont = catDesc->font();
+        catDescFont.setPointSize(9);
+        catDesc->setFont(catDescFont);
+        catDesc->setStyleSheet(QStringLiteral("color: #6b7280; margin-bottom: 4px;"));
+        catDesc->setWordWrap(true);
+        m_effectsLayout->addWidget(catDesc);
 
         // Add cards for this category
         for (const auto &entry : m_catalog) {
@@ -726,7 +910,7 @@ void MainWindow::setupSystemTray()
 
     m_trayMenu = new QMenu(this);
 
-    auto *showAction = m_trayMenu->addAction(QStringLiteral("Show Window"));
+    auto *showAction = m_trayMenu->addAction(QStringLiteral("Fenster anzeigen"));
     connect(showAction, &QAction::triggered, this, [this]() {
         show();
         raise();
@@ -736,7 +920,7 @@ void MainWindow::setupSystemTray()
     m_trayMenu->addSeparator();
 
     // Quick toggles for common effects
-    auto *denoiserAction = m_trayMenu->addAction(QStringLiteral("Toggle Noise Removal"));
+    auto *denoiserAction = m_trayMenu->addAction(QStringLiteral("Rauschunterdr\u00fcckung umschalten"));
     connect(denoiserAction, &QAction::triggered, this, [this]() {
         auto it = m_effectCards.find(QStringLiteral("denoiser"));
         if (it != m_effectCards.end()) {
@@ -748,7 +932,7 @@ void MainWindow::setupSystemTray()
         }
     });
 
-    auto *dereverbAction = m_trayMenu->addAction(QStringLiteral("Toggle Room Echo Removal"));
+    auto *dereverbAction = m_trayMenu->addAction(QStringLiteral("Hall-Entfernung umschalten"));
     connect(dereverbAction, &QAction::triggered, this, [this]() {
         auto it = m_effectCards.find(QStringLiteral("dereverb"));
         if (it != m_effectCards.end()) {
@@ -762,12 +946,12 @@ void MainWindow::setupSystemTray()
 
     m_trayMenu->addSeparator();
 
-    auto *quitAction = m_trayMenu->addAction(QStringLiteral("Quit"));
+    auto *quitAction = m_trayMenu->addAction(QStringLiteral("Beenden"));
     connect(quitAction, &QAction::triggered, qApp, &QApplication::quit);
 
     m_trayIcon = new QSystemTrayIcon(this);
     m_trayIcon->setContextMenu(m_trayMenu);
-    m_trayIcon->setToolTip(QStringLiteral("Maxine PipeWire"));
+    m_trayIcon->setToolTip(QStringLiteral("Maxine PipeWire \u2014 NVIDIA Audio-Effekte"));
 
     // Use a simple generated pixmap as icon since we don't have an icon file yet
     QPixmap iconPix(32, 32);
@@ -879,7 +1063,7 @@ void MainWindow::onDevicesUpdated(const QVector<DeviceInfo> &devices)
 {
     m_deviceCombo->clear();
     if (devices.isEmpty()) {
-        m_deviceCombo->addItem(QStringLiteral("No devices found"));
+        m_deviceCombo->addItem(QStringLiteral("Keine Ger\u00e4te gefunden"));
         return;
     }
     for (const auto &dev : devices) {
@@ -901,4 +1085,18 @@ void MainWindow::onEffectEnableChanged(const QString &id, bool enabled)
 void MainWindow::onEffectIntensityChanged(const QString &id, double value)
 {
     m_dbus->setIntensityAsync(id, value);
+}
+
+void MainWindow::onQuickEnableDenoiser()
+{
+    m_dbus->enableEffectAsync(QStringLiteral("denoiser"));
+}
+
+void MainWindow::onDisableAllEffects()
+{
+    for (auto it = m_effectCards.begin(); it != m_effectCards.end(); ++it) {
+        if (it.value()->isEffectEnabled()) {
+            m_dbus->disableEffectAsync(it.key());
+        }
+    }
 }

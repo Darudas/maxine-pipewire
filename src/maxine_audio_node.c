@@ -58,7 +58,7 @@ static void on_process(void *userdata, struct spa_io_position *position)
     }
 
     // Passthrough when disabled
-    if (!node->enabled || !node->fx_handle) {
+    if (!atomic_load_explicit(&node->enabled, memory_order_relaxed) || !node->fx_handle) {
         memcpy(dst, src, n_samples * sizeof(float));
         buf_out->datas[0].chunk->size = n_samples * sizeof(float);
         buf_out->datas[0].chunk->stride = sizeof(float);
@@ -72,8 +72,20 @@ static void on_process(void *userdata, struct spa_io_position *position)
     uint32_t fs = node->frame_size;
     struct timespec t_start, t_end;
 
+    // Safety: frame_size must be > 0 and buf_pos must be in bounds
+    if (fs == 0) {
+        memcpy(dst, src, n_samples * sizeof(float));
+        buf_out->datas[0].chunk->size = n_samples * sizeof(float);
+        buf_out->datas[0].chunk->stride = sizeof(float);
+        buf_out->datas[0].chunk->offset = 0;
+        pw_filter_queue_buffer(node->input_port, b_in);
+        pw_filter_queue_buffer(node->output_port, b_out);
+        return;
+    }
+
     for (uint32_t i = 0; i < n_samples; i++) {
-        node->in_buf[node->buf_pos] = src[i];
+        if (node->buf_pos < fs)
+            node->in_buf[node->buf_pos] = src[i];
         node->buf_pos++;
 
         if (node->buf_pos >= fs) {
@@ -93,12 +105,15 @@ static void on_process(void *userdata, struct spa_io_position *position)
                 memcpy(node->out_buf, node->in_buf, fs * sizeof(float));
             }
 
-            // Update stats
+            // Update stats with exponential moving average to avoid overflow
             double elapsed = timespec_diff_us(&t_start, &t_end);
-            node->_time_accum += elapsed;
-            node->_time_count++;
-            if (node->_time_count > 0)
-                node->avg_process_time_us = node->_time_accum / node->_time_count;
+            if (node->frames_processed == 0) {
+                node->avg_process_time_us = elapsed;
+            } else {
+                // EMA with alpha ~0.01 (smooth over ~100 frames)
+                node->avg_process_time_us =
+                    node->avg_process_time_us * 0.99 + elapsed * 0.01;
+            }
             node->frames_processed++;
 
             // Copy processed samples to output
@@ -262,7 +277,7 @@ struct maxine_audio_node *maxine_audio_node_create(
 
     node->sdk = sdk;
     node->config = *config;
-    node->enabled = true;
+    atomic_init(&node->enabled, true);
 
     // Copy strings into owned storage
     snprintf(node->effect_id, sizeof(node->effect_id), "%s",
@@ -425,7 +440,7 @@ void maxine_audio_node_set_enabled(struct maxine_audio_node *node, bool enabled)
 {
     if (!node)
         return;
-    node->enabled = enabled;
+    atomic_store_explicit(&node->enabled, enabled, memory_order_relaxed);
     fprintf(stderr, "maxine: '%s' %s\n", node->effect_id,
             enabled ? "enabled" : "disabled");
 }
