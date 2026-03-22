@@ -124,10 +124,47 @@ configure_file(
     install_dir: dbus_services_dir,
 )
 
+# ---- Target 5: maxine-gui (Qt6 GUI, optional) ----
+opt_gui = get_option('gui')
+
+if opt_gui
+    add_languages('cpp', required: true)
+    qt6 = import('qt6')
+    qt6_dep = dependency('qt6', modules: ['Core', 'Widgets', 'DBus'])
+
+    gui_sources = files(
+        'gui/main.cpp',
+        'gui/mainwindow.cpp',
+        'gui/effectcard.cpp',
+        'gui/dbusclient.cpp',
+        'gui/statusbar.cpp',
+    )
+
+    gui_moc = qt6.compile_moc(
+        headers: files(
+            'gui/mainwindow.h',
+            'gui/effectcard.h',
+            'gui/dbusclient.h',
+            'gui/statusbar.h',
+        ),
+    )
+
+    gui_rcc = qt6.compile_resources(
+        sources: files('gui/resources.qrc'),
+    )
+
+    executable('maxine-gui',
+        gui_sources, gui_moc, gui_rcc,
+        dependencies: [qt6_dep],
+        install: true,
+    )
+endif
+
 # ---- Summary ----
 summary({
     'prefix':         prefix,
     'SPA plugin dir': spa_plugindir / 'aec',
     'video_effects':  opt_video,
     'systemd':        opt_systemd,
+    'gui':            opt_gui,
 }, section: 'Configuration')

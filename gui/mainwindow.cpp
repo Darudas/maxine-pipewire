@@ -1,0 +1,904 @@
+#include "mainwindow.h"
+
+#include <QApplication>
+#include <QCloseEvent>
+#include <QResizeEvent>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFont>
+#include <QFrame>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QIcon>
+#include <QLabel>
+#include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
+#include <QPushButton>
+#include <QScrollBar>
+#include <QUrl>
+#include <QVBoxLayout>
+
+// Build the static effect catalog (matches maxctl)
+static QVector<EffectCatalogEntry> buildCatalog()
+{
+    QVector<EffectCatalogEntry> cat;
+
+    cat.append({QStringLiteral("denoiser"),
+                QStringLiteral("Noise Removal"),
+                QStringLiteral("Remove background noise (typing, fans, etc.)"),
+                QStringLiteral("noise"), true});
+
+    cat.append({QStringLiteral("dereverb"),
+                QStringLiteral("Room Echo Removal"),
+                QStringLiteral("Remove room reverberation/echo"),
+                QStringLiteral("noise"), true});
+
+    cat.append({QStringLiteral("dereverb-denoiser"),
+                QStringLiteral("Noise + Room Echo Removal"),
+                QStringLiteral("Combined single-pass (lower latency)"),
+                QStringLiteral("noise"), true});
+
+    cat.append({QStringLiteral("aec"),
+                QStringLiteral("Acoustic Echo Cancellation"),
+                QStringLiteral("Remove speaker playback from microphone"),
+                QStringLiteral("echo"), true});
+
+    cat.append({QStringLiteral("superres"),
+                QStringLiteral("Audio Super Resolution"),
+                QStringLiteral("Upscale low-quality audio (8/16kHz -> 48kHz)"),
+                QStringLiteral("enhancement"), false});
+
+    cat.append({QStringLiteral("studio-voice-hq"),
+                QStringLiteral("Studio Voice (High Quality)"),
+                QStringLiteral("Make any mic sound professional"),
+                QStringLiteral("enhancement"), false});
+
+    cat.append({QStringLiteral("studio-voice-ll"),
+                QStringLiteral("Studio Voice (Low Latency)"),
+                QStringLiteral("Studio quality with lower latency"),
+                QStringLiteral("enhancement"), false});
+
+    cat.append({QStringLiteral("speaker-focus"),
+                QStringLiteral("Speaker Focus"),
+                QStringLiteral("Isolate main speaker, remove others"),
+                QStringLiteral("voice"), true});
+
+    cat.append({QStringLiteral("voice-font-hq"),
+                QStringLiteral("Voice Font (High Quality)"),
+                QStringLiteral("Change voice to match reference"),
+                QStringLiteral("voice"), false});
+
+    cat.append({QStringLiteral("voice-font-ll"),
+                QStringLiteral("Voice Font (Low Latency)"),
+                QStringLiteral("Voice conversion with lower latency"),
+                QStringLiteral("voice"), false});
+
+    return cat;
+}
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , m_dbus(new DBusClient(this))
+    , m_trayIcon(nullptr)
+    , m_trayMenu(nullptr)
+{
+    m_catalog = buildCatalog();
+
+    setWindowTitle(QStringLiteral("Maxine PipeWire"));
+    resize(960, 720);
+    setMinimumSize(740, 520);
+
+    setupUi();
+    setupSystemTray();
+
+    // Connect D-Bus signals
+    connect(m_dbus, &DBusClient::daemonConnected,
+            this, &MainWindow::onDaemonConnected);
+    connect(m_dbus, &DBusClient::daemonDisconnected,
+            this, &MainWindow::onDaemonDisconnected);
+    connect(m_dbus, &DBusClient::effectsUpdated,
+            this, &MainWindow::onEffectsUpdated);
+    connect(m_dbus, &DBusClient::statusUpdated,
+            this, &MainWindow::onStatusUpdated);
+    connect(m_dbus, &DBusClient::devicesUpdated,
+            this, &MainWindow::onDevicesUpdated);
+
+    // Start polling
+    m_dbus->startPolling(2000);
+}
+
+MainWindow::~MainWindow()
+{
+    m_dbus->stopPolling();
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (m_trayIcon && m_trayIcon->isVisible()) {
+        hide();
+        event->ignore();
+    } else {
+        event->accept();
+    }
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    if (m_disconnectedOverlay && m_centralWidget) {
+        m_disconnectedOverlay->setGeometry(m_centralWidget->rect());
+    }
+}
+
+void MainWindow::setupUi()
+{
+    m_centralWidget = new QWidget(this);
+    setCentralWidget(m_centralWidget);
+
+    auto *rootLayout = new QVBoxLayout(m_centralWidget);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    // Title bar area
+    auto *titleBar = new QWidget(this);
+    titleBar->setObjectName(QStringLiteral("TitleBar"));
+    titleBar->setFixedHeight(52);
+    titleBar->setStyleSheet(
+        QStringLiteral("QWidget#TitleBar {"
+                        "  background-color: #0f1623;"
+                        "  border-bottom: 1px solid #1e2a3a;"
+                        "}")
+    );
+
+    auto *titleLayout = new QHBoxLayout(titleBar);
+    titleLayout->setContentsMargins(20, 0, 20, 0);
+
+    // NVIDIA-style green bar accent
+    auto *accentBar = new QWidget(this);
+    accentBar->setFixedSize(4, 24);
+    accentBar->setStyleSheet(QStringLiteral("background-color: #76b900; border-radius: 2px;"));
+    titleLayout->addWidget(accentBar);
+
+    auto *titleLabel = new QLabel(QStringLiteral("Maxine PipeWire"), this);
+    titleLabel->setObjectName(QStringLiteral("TitleLabel"));
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    titleLabel->setStyleSheet(QStringLiteral("color: #e5e7eb; margin-left: 10px;"));
+    titleLayout->addWidget(titleLabel);
+
+    auto *subtitleLabel = new QLabel(QStringLiteral("NVIDIA Audio Effects for Linux"), this);
+    QFont subFont = subtitleLabel->font();
+    subFont.setPointSize(9);
+    subtitleLabel->setFont(subFont);
+    subtitleLabel->setStyleSheet(QStringLiteral("color: #6b7280; margin-left: 8px;"));
+    titleLayout->addWidget(subtitleLabel);
+
+    titleLayout->addStretch();
+
+    rootLayout->addWidget(titleBar);
+
+    // Main content area: sidebar + pages
+    auto *contentWidget = new QWidget(this);
+    auto *contentLayout = new QHBoxLayout(contentWidget);
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    contentLayout->setSpacing(0);
+
+    setupSidebar();
+    contentLayout->addWidget(m_sidebar);
+
+    // Separator line
+    auto *sepLine = new QFrame(this);
+    sepLine->setFrameShape(QFrame::VLine);
+    sepLine->setStyleSheet(QStringLiteral("color: #1e2a3a;"));
+    contentLayout->addWidget(sepLine);
+
+    // Pages
+    m_pages = new QStackedWidget(this);
+    setupAudioPage();
+    setupSettingsPage();
+    setupDisconnectedPage();
+
+    m_pages->addWidget(m_audioPage);
+    m_pages->addWidget(m_settingsPage);
+
+    contentLayout->addWidget(m_pages, 1);
+
+    rootLayout->addWidget(contentWidget, 1);
+
+    // Status bar at bottom
+    m_statusBar = new StatusBar(this);
+    m_statusBar->setStyleSheet(
+        QStringLiteral("QWidget#StatusBar {"
+                        "  background-color: #0f1623;"
+                        "  border-top: 1px solid #1e2a3a;"
+                        "}")
+    );
+    rootLayout->addWidget(m_statusBar);
+
+    // Disconnected overlay (on top of content)
+    m_disconnectedOverlay = new QWidget(m_centralWidget);
+    m_disconnectedOverlay->setObjectName(QStringLiteral("DisconnectedOverlay"));
+    m_disconnectedOverlay->setStyleSheet(
+        QStringLiteral("QWidget#DisconnectedOverlay {"
+                        "  background-color: rgba(15, 22, 35, 220);"
+                        "}")
+    );
+
+    auto *overlayLayout = new QVBoxLayout(m_disconnectedOverlay);
+    overlayLayout->setAlignment(Qt::AlignCenter);
+
+    auto *disconnIcon = new QLabel(this);
+    disconnIcon->setText(QStringLiteral("!"));
+    disconnIcon->setAlignment(Qt::AlignCenter);
+    disconnIcon->setFixedSize(64, 64);
+    disconnIcon->setStyleSheet(
+        QStringLiteral("background-color: #374151;"
+                        " border-radius: 32px;"
+                        " color: #ef4444;"
+                        " font-size: 32px;"
+                        " font-weight: bold;")
+    );
+    overlayLayout->addWidget(disconnIcon, 0, Qt::AlignCenter);
+
+    auto *disconnTitle = new QLabel(
+        QStringLiteral("Daemon Not Running"), this
+    );
+    QFont disconnFont = disconnTitle->font();
+    disconnFont.setPointSize(18);
+    disconnFont.setBold(true);
+    disconnTitle->setFont(disconnFont);
+    disconnTitle->setStyleSheet(QStringLiteral("color: #e5e7eb; margin-top: 16px;"));
+    disconnTitle->setAlignment(Qt::AlignCenter);
+    overlayLayout->addWidget(disconnTitle, 0, Qt::AlignCenter);
+
+    auto *disconnDesc = new QLabel(
+        QStringLiteral("The maxined daemon is not running or not reachable via D-Bus.\n"
+                        "Start it with the command below:"),
+        this
+    );
+    disconnDesc->setStyleSheet(QStringLiteral("color: #9ca3af; margin-top: 8px;"));
+    disconnDesc->setAlignment(Qt::AlignCenter);
+    overlayLayout->addWidget(disconnDesc, 0, Qt::AlignCenter);
+
+    auto *cmdLabel = new QLabel(
+        QStringLiteral("systemctl --user start maxined"), this
+    );
+    cmdLabel->setStyleSheet(
+        QStringLiteral("background-color: #1f2937;"
+                        " border: 1px solid #374151;"
+                        " border-radius: 6px;"
+                        " padding: 10px 20px;"
+                        " color: #76b900;"
+                        " font-family: monospace;"
+                        " font-size: 13px;"
+                        " margin-top: 12px;")
+    );
+    cmdLabel->setAlignment(Qt::AlignCenter);
+    cmdLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    overlayLayout->addWidget(cmdLabel, 0, Qt::AlignCenter);
+
+    auto *hintLabel = new QLabel(
+        QStringLiteral("The GUI will automatically connect when the daemon starts."), this
+    );
+    hintLabel->setStyleSheet(QStringLiteral("color: #6b7280; margin-top: 16px; font-size: 10px;"));
+    hintLabel->setAlignment(Qt::AlignCenter);
+    overlayLayout->addWidget(hintLabel, 0, Qt::AlignCenter);
+
+    m_disconnectedOverlay->setGeometry(m_centralWidget->rect());
+    m_disconnectedOverlay->raise();
+    m_disconnectedOverlay->show();
+
+    // Connect sidebar
+    connect(m_sidebar, &QListWidget::currentRowChanged,
+            this, &MainWindow::onSidebarChanged);
+    m_sidebar->setCurrentRow(0);
+}
+
+void MainWindow::setupSidebar()
+{
+    m_sidebar = new QListWidget(this);
+    m_sidebar->setObjectName(QStringLiteral("Sidebar"));
+    m_sidebar->setFixedWidth(180);
+    m_sidebar->setIconSize(QSize(20, 20));
+    m_sidebar->setSpacing(2);
+
+    // Audio section
+    auto *audioItem = new QListWidgetItem(QStringLiteral("  Audio"));
+    audioItem->setSizeHint(QSize(180, 44));
+    m_sidebar->addItem(audioItem);
+
+    // Video section (greyed out)
+    auto *videoItem = new QListWidgetItem(QStringLiteral("  Video"));
+    videoItem->setSizeHint(QSize(180, 44));
+    videoItem->setFlags(videoItem->flags() & ~Qt::ItemIsEnabled);
+    videoItem->setToolTip(QStringLiteral("Coming soon"));
+    m_sidebar->addItem(videoItem);
+
+    // Settings section
+    auto *settingsItem = new QListWidgetItem(QStringLiteral("  Settings"));
+    settingsItem->setSizeHint(QSize(180, 44));
+    m_sidebar->addItem(settingsItem);
+
+    m_sidebar->setStyleSheet(
+        QStringLiteral(
+            "QListWidget#Sidebar {"
+            "  background-color: #0f1623;"
+            "  border: none;"
+            "  padding-top: 12px;"
+            "  outline: none;"
+            "}"
+            "QListWidget#Sidebar::item {"
+            "  color: #9ca3af;"
+            "  padding: 10px 16px;"
+            "  border-radius: 8px;"
+            "  margin: 2px 8px;"
+            "  font-size: 13px;"
+            "  font-weight: 500;"
+            "}"
+            "QListWidget#Sidebar::item:selected {"
+            "  background-color: #1f2937;"
+            "  color: #76b900;"
+            "  font-weight: bold;"
+            "}"
+            "QListWidget#Sidebar::item:hover:!selected {"
+            "  background-color: #161f2e;"
+            "  color: #d1d5db;"
+            "}"
+            "QListWidget#Sidebar::item:disabled {"
+            "  color: #374151;"
+            "}"
+        )
+    );
+}
+
+void MainWindow::setupAudioPage()
+{
+    m_audioPage = new QWidget(this);
+    auto *pageLayout = new QVBoxLayout(m_audioPage);
+    pageLayout->setContentsMargins(24, 20, 24, 12);
+    pageLayout->setSpacing(16);
+
+    // Page header
+    auto *headerLabel = new QLabel(QStringLiteral("Audio Effects"), this);
+    QFont headerFont = headerLabel->font();
+    headerFont.setPointSize(18);
+    headerFont.setBold(true);
+    headerLabel->setFont(headerFont);
+    headerLabel->setStyleSheet(QStringLiteral("color: #e5e7eb;"));
+    pageLayout->addWidget(headerLabel);
+
+    // Device selector
+    auto *deviceWidget = new QWidget(this);
+    deviceWidget->setObjectName(QStringLiteral("DeviceSelector"));
+    deviceWidget->setStyleSheet(
+        QStringLiteral("QWidget#DeviceSelector {"
+                        "  background-color: #1f2937;"
+                        "  border: 1px solid #374151;"
+                        "  border-radius: 10px;"
+                        "  padding: 6px;"
+                        "}")
+    );
+    auto *deviceLayout = new QHBoxLayout(deviceWidget);
+    deviceLayout->setContentsMargins(14, 10, 14, 10);
+
+    auto *deviceLabel = new QLabel(QStringLiteral("Input Device"), this);
+    QFont devFont = deviceLabel->font();
+    devFont.setPointSize(11);
+    devFont.setBold(true);
+    deviceLabel->setFont(devFont);
+    deviceLabel->setStyleSheet(QStringLiteral("color: #d1d5db;"));
+    deviceLayout->addWidget(deviceLabel);
+
+    m_deviceCombo = new QComboBox(this);
+    m_deviceCombo->setMinimumWidth(280);
+    m_deviceCombo->setFixedHeight(32);
+    m_deviceCombo->addItem(QStringLiteral("Default (waiting for daemon...)"));
+    m_deviceCombo->setStyleSheet(
+        QStringLiteral(
+            "QComboBox {"
+            "  background-color: #111827;"
+            "  color: #e5e7eb;"
+            "  border: 1px solid #374151;"
+            "  border-radius: 6px;"
+            "  padding: 4px 12px;"
+            "  font-size: 11px;"
+            "}"
+            "QComboBox::drop-down {"
+            "  border: none;"
+            "  width: 24px;"
+            "}"
+            "QComboBox::down-arrow {"
+            "  image: none;"
+            "  border-left: 5px solid transparent;"
+            "  border-right: 5px solid transparent;"
+            "  border-top: 6px solid #9ca3af;"
+            "  margin-right: 8px;"
+            "}"
+            "QComboBox QAbstractItemView {"
+            "  background-color: #1f2937;"
+            "  color: #e5e7eb;"
+            "  border: 1px solid #374151;"
+            "  selection-background-color: #374151;"
+            "  outline: none;"
+            "}"
+        )
+    );
+    deviceLayout->addWidget(m_deviceCombo, 1);
+
+    pageLayout->addWidget(deviceWidget);
+
+    // Scrollable effects area
+    m_effectsScroll = new QScrollArea(this);
+    m_effectsScroll->setWidgetResizable(true);
+    m_effectsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_effectsScroll->setFrameShape(QFrame::NoFrame);
+    m_effectsScroll->setStyleSheet(
+        QStringLiteral(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical {"
+            "  background: #0f1623;"
+            "  width: 8px;"
+            "  margin: 0;"
+            "  border-radius: 4px;"
+            "}"
+            "QScrollBar::handle:vertical {"
+            "  background: #374151;"
+            "  min-height: 30px;"
+            "  border-radius: 4px;"
+            "}"
+            "QScrollBar::handle:vertical:hover {"
+            "  background: #4b5563;"
+            "}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+            "  height: 0px;"
+            "}"
+        )
+    );
+
+    m_effectsContainer = new QWidget(this);
+    m_effectsContainer->setStyleSheet(QStringLiteral("background: transparent;"));
+    m_effectsLayout = new QVBoxLayout(m_effectsContainer);
+    m_effectsLayout->setContentsMargins(0, 0, 4, 0);
+    m_effectsLayout->setSpacing(8);
+
+    buildEffectCards();
+
+    m_effectsLayout->addStretch();
+    m_effectsScroll->setWidget(m_effectsContainer);
+
+    pageLayout->addWidget(m_effectsScroll, 1);
+}
+
+void MainWindow::setupSettingsPage()
+{
+    m_settingsPage = new QWidget(this);
+    auto *pageLayout = new QVBoxLayout(m_settingsPage);
+    pageLayout->setContentsMargins(24, 20, 24, 12);
+    pageLayout->setSpacing(20);
+
+    // Page header
+    auto *headerLabel = new QLabel(QStringLiteral("Settings"), this);
+    QFont headerFont = headerLabel->font();
+    headerFont.setPointSize(18);
+    headerFont.setBold(true);
+    headerLabel->setFont(headerFont);
+    headerLabel->setStyleSheet(QStringLiteral("color: #e5e7eb;"));
+    pageLayout->addWidget(headerLabel);
+
+    // Settings card: Model Path
+    auto *modelCard = new QWidget(this);
+    modelCard->setObjectName(QStringLiteral("SettingsCard"));
+    modelCard->setStyleSheet(
+        QStringLiteral("QWidget#SettingsCard {"
+                        "  background-color: #1f2937;"
+                        "  border: 1px solid #374151;"
+                        "  border-radius: 10px;"
+                        "}")
+    );
+    auto *modelLayout = new QVBoxLayout(modelCard);
+    modelLayout->setContentsMargins(18, 14, 18, 14);
+    modelLayout->setSpacing(8);
+
+    auto *modelTitle = new QLabel(QStringLiteral("Model Path"), this);
+    QFont mFont = modelTitle->font();
+    mFont.setPointSize(12);
+    mFont.setBold(true);
+    modelTitle->setFont(mFont);
+    modelTitle->setStyleSheet(QStringLiteral("color: #d1d5db;"));
+    modelLayout->addWidget(modelTitle);
+
+    m_modelPathLabel = new QLabel(QStringLiteral("/opt/maxine-afx/features"), this);
+    m_modelPathLabel->setStyleSheet(
+        QStringLiteral("color: #9ca3af; font-family: monospace; font-size: 11px;")
+    );
+    m_modelPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    modelLayout->addWidget(m_modelPathLabel);
+
+    pageLayout->addWidget(modelCard);
+
+    // Settings card: Sample Rate
+    auto *srCard = new QWidget(this);
+    srCard->setObjectName(QStringLiteral("SettingsCard2"));
+    srCard->setStyleSheet(
+        QStringLiteral("QWidget#SettingsCard2 {"
+                        "  background-color: #1f2937;"
+                        "  border: 1px solid #374151;"
+                        "  border-radius: 10px;"
+                        "}")
+    );
+    auto *srLayout = new QVBoxLayout(srCard);
+    srLayout->setContentsMargins(18, 14, 18, 14);
+    srLayout->setSpacing(8);
+
+    auto *srTitle = new QLabel(QStringLiteral("Sample Rate"), this);
+    srTitle->setFont(mFont);
+    srTitle->setStyleSheet(QStringLiteral("color: #d1d5db;"));
+    srLayout->addWidget(srTitle);
+
+    m_sampleRateLabel = new QLabel(QStringLiteral("48000 Hz"), this);
+    m_sampleRateLabel->setStyleSheet(QStringLiteral("color: #76b900; font-size: 13px; font-weight: bold;"));
+    srLayout->addWidget(m_sampleRateLabel);
+
+    auto *srHint = new QLabel(
+        QStringLiteral("Supported: 16000 Hz, 48000 Hz. Change in config.toml and reload."),
+        this
+    );
+    srHint->setStyleSheet(QStringLiteral("color: #6b7280; font-size: 10px;"));
+    srHint->setWordWrap(true);
+    srLayout->addWidget(srHint);
+
+    pageLayout->addWidget(srCard);
+
+    // Settings card: Config File
+    auto *configCard = new QWidget(this);
+    configCard->setObjectName(QStringLiteral("SettingsCard3"));
+    configCard->setStyleSheet(
+        QStringLiteral("QWidget#SettingsCard3 {"
+                        "  background-color: #1f2937;"
+                        "  border: 1px solid #374151;"
+                        "  border-radius: 10px;"
+                        "}")
+    );
+    auto *configLayout = new QVBoxLayout(configCard);
+    configLayout->setContentsMargins(18, 14, 18, 14);
+    configLayout->setSpacing(8);
+
+    auto *configTitle = new QLabel(QStringLiteral("Configuration"), this);
+    configTitle->setFont(mFont);
+    configTitle->setStyleSheet(QStringLiteral("color: #d1d5db;"));
+    configLayout->addWidget(configTitle);
+
+    auto *configRow = new QHBoxLayout();
+
+    QString configPath = QDir::homePath() +
+        QStringLiteral("/.config/maxine-pipewire/config.toml");
+    auto *configPathLabel = new QLabel(configPath, this);
+    configPathLabel->setStyleSheet(
+        QStringLiteral("color: #9ca3af; font-family: monospace; font-size: 11px;")
+    );
+    configPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    configRow->addWidget(configPathLabel, 1);
+
+    auto *openConfigBtn = new QPushButton(QStringLiteral("Open in Editor"), this);
+    openConfigBtn->setFixedHeight(30);
+    openConfigBtn->setCursor(Qt::PointingHandCursor);
+    openConfigBtn->setStyleSheet(
+        QStringLiteral(
+            "QPushButton {"
+            "  background-color: #374151;"
+            "  color: #e5e7eb;"
+            "  border: 1px solid #4b5563;"
+            "  border-radius: 6px;"
+            "  padding: 4px 16px;"
+            "  font-size: 11px;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #4b5563;"
+            "}"
+        )
+    );
+    connect(openConfigBtn, &QPushButton::clicked, this, [configPath]() {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(configPath));
+    });
+    configRow->addWidget(openConfigBtn);
+
+    auto *reloadBtn = new QPushButton(QStringLiteral("Reload Config"), this);
+    reloadBtn->setFixedHeight(30);
+    reloadBtn->setCursor(Qt::PointingHandCursor);
+    reloadBtn->setStyleSheet(
+        QStringLiteral(
+            "QPushButton {"
+            "  background-color: #1a3a0a;"
+            "  color: #76b900;"
+            "  border: 1px solid #76b900;"
+            "  border-radius: 6px;"
+            "  padding: 4px 16px;"
+            "  font-size: 11px;"
+            "  font-weight: bold;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #2a4a1a;"
+            "}"
+        )
+    );
+    connect(reloadBtn, &QPushButton::clicked, this, [this]() {
+        m_dbus->reloadConfigAsync();
+    });
+    configRow->addWidget(reloadBtn);
+
+    configLayout->addLayout(configRow);
+
+    pageLayout->addWidget(configCard);
+
+    // About section
+    auto *aboutCard = new QWidget(this);
+    aboutCard->setObjectName(QStringLiteral("SettingsCard4"));
+    aboutCard->setStyleSheet(
+        QStringLiteral("QWidget#SettingsCard4 {"
+                        "  background-color: #1f2937;"
+                        "  border: 1px solid #374151;"
+                        "  border-radius: 10px;"
+                        "}")
+    );
+    auto *aboutLayout = new QVBoxLayout(aboutCard);
+    aboutLayout->setContentsMargins(18, 14, 18, 14);
+    aboutLayout->setSpacing(6);
+
+    auto *aboutTitle = new QLabel(QStringLiteral("About"), this);
+    aboutTitle->setFont(mFont);
+    aboutTitle->setStyleSheet(QStringLiteral("color: #d1d5db;"));
+    aboutLayout->addWidget(aboutTitle);
+
+    auto *aboutText = new QLabel(
+        QStringLiteral("Maxine PipeWire v0.1.0\n"
+                        "NVIDIA Broadcast for Linux\n\n"
+                        "GPU-accelerated audio effects via NVIDIA Maxine AFX SDK\n"
+                        "with native PipeWire integration.\n\n"
+                        "License: MIT"),
+        this
+    );
+    aboutText->setStyleSheet(QStringLiteral("color: #9ca3af; font-size: 11px;"));
+    aboutText->setWordWrap(true);
+    aboutLayout->addWidget(aboutText);
+
+    pageLayout->addWidget(aboutCard);
+
+    pageLayout->addStretch();
+}
+
+void MainWindow::setupDisconnectedPage()
+{
+    // The overlay is set up in setupUi already
+}
+
+void MainWindow::buildEffectCards()
+{
+    // Group effects by category for visual grouping
+    struct CategoryGroup {
+        QString category;
+        QString label;
+    };
+    QVector<CategoryGroup> groups = {
+        {QStringLiteral("noise"), QStringLiteral("Noise Reduction")},
+        {QStringLiteral("echo"), QStringLiteral("Echo Cancellation")},
+        {QStringLiteral("enhancement"), QStringLiteral("Audio Enhancement")},
+        {QStringLiteral("voice"), QStringLiteral("Voice Processing")},
+    };
+
+    for (const auto &group : groups) {
+        // Category header
+        auto *catLabel = new QLabel(group.label, this);
+        QFont catFont = catLabel->font();
+        catFont.setPointSize(11);
+        catFont.setBold(true);
+        catLabel->setFont(catFont);
+        QColor catColor = EffectCard::categoryColor(group.category);
+        catLabel->setStyleSheet(
+            QString("color: %1; margin-top: 8px; margin-bottom: 2px;")
+            .arg(catColor.name())
+        );
+        m_effectsLayout->addWidget(catLabel);
+
+        // Add cards for this category
+        for (const auto &entry : m_catalog) {
+            if (entry.category != group.category)
+                continue;
+
+            auto *card = new EffectCard(entry, this);
+            m_effectCards.insert(entry.id, card);
+            m_effectsLayout->addWidget(card);
+
+            connect(card, &EffectCard::enableChanged,
+                    this, &MainWindow::onEffectEnableChanged);
+            connect(card, &EffectCard::intensityChanged,
+                    this, &MainWindow::onEffectIntensityChanged);
+        }
+    }
+}
+
+void MainWindow::setupSystemTray()
+{
+    if (!QSystemTrayIcon::isSystemTrayAvailable())
+        return;
+
+    m_trayMenu = new QMenu(this);
+
+    auto *showAction = m_trayMenu->addAction(QStringLiteral("Show Window"));
+    connect(showAction, &QAction::triggered, this, [this]() {
+        show();
+        raise();
+        activateWindow();
+    });
+
+    m_trayMenu->addSeparator();
+
+    // Quick toggles for common effects
+    auto *denoiserAction = m_trayMenu->addAction(QStringLiteral("Toggle Noise Removal"));
+    connect(denoiserAction, &QAction::triggered, this, [this]() {
+        auto it = m_effectCards.find(QStringLiteral("denoiser"));
+        if (it != m_effectCards.end()) {
+            bool newState = !it.value()->isEffectEnabled();
+            if (newState)
+                m_dbus->enableEffectAsync(QStringLiteral("denoiser"));
+            else
+                m_dbus->disableEffectAsync(QStringLiteral("denoiser"));
+        }
+    });
+
+    auto *dereverbAction = m_trayMenu->addAction(QStringLiteral("Toggle Room Echo Removal"));
+    connect(dereverbAction, &QAction::triggered, this, [this]() {
+        auto it = m_effectCards.find(QStringLiteral("dereverb"));
+        if (it != m_effectCards.end()) {
+            bool newState = !it.value()->isEffectEnabled();
+            if (newState)
+                m_dbus->enableEffectAsync(QStringLiteral("dereverb"));
+            else
+                m_dbus->disableEffectAsync(QStringLiteral("dereverb"));
+        }
+    });
+
+    m_trayMenu->addSeparator();
+
+    auto *quitAction = m_trayMenu->addAction(QStringLiteral("Quit"));
+    connect(quitAction, &QAction::triggered, qApp, &QApplication::quit);
+
+    m_trayIcon = new QSystemTrayIcon(this);
+    m_trayIcon->setContextMenu(m_trayMenu);
+    m_trayIcon->setToolTip(QStringLiteral("Maxine PipeWire"));
+
+    // Use a simple generated pixmap as icon since we don't have an icon file yet
+    QPixmap iconPix(32, 32);
+    iconPix.fill(Qt::transparent);
+    {
+        QPainter p(&iconPix);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x76, 0xb9, 0x00));
+        p.drawRoundedRect(2, 2, 28, 28, 6, 6);
+        p.setPen(QPen(Qt::white, 2));
+        QFont f;
+        f.setPixelSize(18);
+        f.setBold(true);
+        p.setFont(f);
+        p.drawText(iconPix.rect(), Qt::AlignCenter, QStringLiteral("M"));
+    }
+    m_trayIcon->setIcon(QIcon(iconPix));
+
+    connect(m_trayIcon, &QSystemTrayIcon::activated, this,
+        [this](QSystemTrayIcon::ActivationReason reason) {
+            if (reason == QSystemTrayIcon::Trigger ||
+                reason == QSystemTrayIcon::DoubleClick) {
+                if (isVisible()) {
+                    hide();
+                } else {
+                    show();
+                    raise();
+                    activateWindow();
+                }
+            }
+        }
+    );
+
+    m_trayIcon->show();
+}
+
+void MainWindow::showDisconnectedOverlay(bool show)
+{
+    if (show) {
+        m_disconnectedOverlay->setGeometry(m_centralWidget->rect());
+        m_disconnectedOverlay->raise();
+        m_disconnectedOverlay->show();
+    } else {
+        m_disconnectedOverlay->hide();
+    }
+}
+
+void MainWindow::onSidebarChanged(int currentRow)
+{
+    // row 0 = Audio, row 1 = Video (disabled), row 2 = Settings
+    if (currentRow == 0) {
+        m_pages->setCurrentWidget(m_audioPage);
+    } else if (currentRow == 2) {
+        m_pages->setCurrentWidget(m_settingsPage);
+    }
+    // Video (row 1) is disabled and can't be selected
+}
+
+void MainWindow::onDaemonConnected()
+{
+    showDisconnectedOverlay(false);
+    m_statusBar->setConnected(true);
+
+    // Fetch devices
+    QVector<DeviceInfo> devices = m_dbus->listDevices();
+    onDevicesUpdated(devices);
+}
+
+void MainWindow::onDaemonDisconnected()
+{
+    showDisconnectedOverlay(true);
+    m_statusBar->setConnected(false);
+}
+
+void MainWindow::onEffectsUpdated(const QVector<EffectInfo> &effects)
+{
+    // Update existing cards with daemon state
+    // Build a map for quick lookup
+    QMap<QString, EffectInfo> effectMap;
+    for (const auto &e : effects) {
+        effectMap.insert(e.id, e);
+    }
+
+    for (auto it = m_effectCards.begin(); it != m_effectCards.end(); ++it) {
+        EffectCard *card = it.value();
+        auto eit = effectMap.find(it.key());
+        if (eit != effectMap.end()) {
+            // Block signals to avoid feedback loops
+            card->blockSignals(true);
+            card->setEnabled(eit->enabled);
+            card->setIntensity(eit->intensity);
+            card->blockSignals(false);
+        }
+    }
+}
+
+void MainWindow::onStatusUpdated(const DaemonStatus &status)
+{
+    m_statusBar->updateStatus(status);
+
+    // Update settings page
+    if (!status.sampleRate.isEmpty()) {
+        m_sampleRateLabel->setText(status.sampleRate + QStringLiteral(" Hz"));
+    }
+}
+
+void MainWindow::onDevicesUpdated(const QVector<DeviceInfo> &devices)
+{
+    m_deviceCombo->clear();
+    if (devices.isEmpty()) {
+        m_deviceCombo->addItem(QStringLiteral("No devices found"));
+        return;
+    }
+    for (const auto &dev : devices) {
+        QString display = dev.name;
+        if (!dev.type.isEmpty())
+            display += QStringLiteral(" [") + dev.type + QStringLiteral("]");
+        m_deviceCombo->addItem(display, dev.id);
+    }
+}
+
+void MainWindow::onEffectEnableChanged(const QString &id, bool enabled)
+{
+    if (enabled)
+        m_dbus->enableEffectAsync(id);
+    else
+        m_dbus->disableEffectAsync(id);
+}
+
+void MainWindow::onEffectIntensityChanged(const QString &id, double value)
+{
+    m_dbus->setIntensityAsync(id, value);
+}
