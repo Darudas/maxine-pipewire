@@ -33,14 +33,29 @@ bool maxine_sdk_load(struct maxine_sdk *sdk, const char *sdk_path)
         lib = path_buf;
     }
 
-    sdk->lib_handle = dlopen(lib, RTLD_LAZY);
+    // Pre-load CUDA/TensorRT dependencies with RTLD_GLOBAL so the effect
+    // libraries (libnv_audiofx_denoiser.so etc.) can resolve their symbols.
+    // These are in the SDK's external/cuda/lib/ directory.
+    {
+        const char *cuda_deps[] = {
+            "libnvinfer.so.10",
+            "libnvinfer_plugin.so.10",
+            "libcufft.so.11",
+            "libcublas.so.12",
+            "libcublasLt.so.12",
+            NULL
+        };
+        for (int i = 0; cuda_deps[i]; i++)
+            dlopen(cuda_deps[i], RTLD_LAZY | RTLD_GLOBAL);
+    }
+
+    sdk->lib_handle = dlopen(lib, RTLD_LAZY | RTLD_GLOBAL);
     if (!sdk->lib_handle) {
         fprintf(stderr, "maxine: failed to load %s: %s\n", lib, dlerror());
         return false;
     }
 
     // Required symbols — loading fails if any are missing
-    LOAD_SYM(sdk, GetEffectList);
     LOAD_SYM(sdk, CreateEffect);
     LOAD_SYM(sdk, DestroyEffect);
     LOAD_SYM(sdk, SetString);
@@ -53,6 +68,7 @@ bool maxine_sdk_load(struct maxine_sdk *sdk, const char *sdk_path)
     LOAD_SYM(sdk, Reset);
 
     // Optional symbols — NULL if not available (older SDK, etc.)
+    LOAD_SYM_OPT(sdk, GetEffectList);
     LOAD_SYM_OPT(sdk, CreateChainedEffect);
     LOAD_SYM_OPT(sdk, SetFloatList);
     LOAD_SYM_OPT(sdk, SetU32List);

@@ -94,10 +94,19 @@ static int load_effect(struct impl *impl, NvAFX_Handle *handle,
         return -1;
     }
 
-    snprintf(model, sizeof(model), "%s/%s/models/sm_89/", impl->model_path, model_subdir);
-    st = impl->sdk.SetString(*handle, NVAFX_PARAM_MODEL_PATH, model);
+    {
+        const char *rate_suffix = (impl->sample_rate == 48000) ? "48k" : "16k";
+        snprintf(model, sizeof(model), "%s/%s/models/sm_89/%s_%s.trtpkg",
+                 impl->model_path, model_subdir, model_subdir, rate_suffix);
+    }
+    if (impl->sdk.SetStringList) {
+        const char *model_list[1] = { model };
+        st = impl->sdk.SetStringList(*handle, NVAFX_PARAM_MODEL_PATH, model_list, 1);
+    } else {
+        st = impl->sdk.SetString(*handle, NVAFX_PARAM_MODEL_PATH, model);
+    }
     if (st != NVAFX_STATUS_SUCCESS) {
-        spa_log_error_maxine(impl, "SetString(model_path, %s) failed: %s", model, nvafx_status_str(st));
+        spa_log_error_maxine(impl, "SetModel(%s) failed: %s", model, nvafx_status_str(st));
         return -1;
     }
 

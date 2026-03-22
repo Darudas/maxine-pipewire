@@ -32,7 +32,7 @@ virtual_source_name = "Maxine Clean Mic"
 # ============================================================================
 #
 # Each [effect.NAME] section configures one effect.
-# NAME must match a valid effect ID.
+# NAME must match a valid effect ID (see 'maxctl effects').
 #
 # Common parameters:
 #   enabled     = true/false    Whether the effect is active on startup
@@ -60,7 +60,7 @@ enable_vad = false
 # --- Combined Noise + Room Echo Removal ---
 # Single-pass combined denoiser + dereverb with lower latency than
 # running both effects separately.
-# [effect.dereverb_denoiser]
+# [effect.dereverb-denoiser]
 # enabled = false
 # intensity = 0.8
 
@@ -83,33 +83,33 @@ enable_vad = false
 # --- Studio Voice (High Quality) ---
 # Makes any microphone sound like a professional studio recording.
 # Higher quality but also higher latency than the low-latency variant.
-# [effect.studio_voice_hq]
+# [effect.studio-voice-hq]
 # enabled = false
 # intensity = 1.0
 
 # --- Studio Voice (Low Latency) ---
 # Studio-quality voice processing with reduced latency.
 # Good for real-time communication where latency matters.
-# [effect.studio_voice_ll]
+# [effect.studio-voice-ll]
 # enabled = false
 # intensity = 1.0
 
 # --- Speaker Focus ---
 # Isolates the primary speaker and removes other voices.
 # Useful in shared spaces or open offices.
-# [effect.speaker_focus]
+# [effect.speaker-focus]
 # enabled = false
 # intensity = 1.0
 
 # --- Voice Font (High Quality) ---
 # Transforms your voice to match a reference voice.
 # Requires a reference audio file configured separately.
-# [effect.voice_font_hq]
+# [effect.voice-font-hq]
 # enabled = false
 # intensity = 1.0
 
 # --- Voice Font (Low Latency) ---
 # Voice transformation with reduced latency.
-# [effect.voice_font_ll]
+# [effect.voice-font-ll]
 # enabled = false
 # intensity = 1.0

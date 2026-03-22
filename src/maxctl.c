@@ -33,36 +33,62 @@ static bool use_color = true;
 
 #define COL(c) (use_color ? (c) : "")
 
-// --- Effect descriptions ---
+// --- Effect catalog (static metadata for display, independent of daemon) ---
 
 struct effect_info {
     const char *id;
     const char *name;
     const char *description;
+    const char *category;
 };
 
 static const struct effect_info effect_catalog[] = {
-    { "denoiser",          "Noise Removal",
-      "Remove background noise (typing, fans, etc.)" },
-    { "dereverb",          "Room Echo Removal",
-      "Remove room reverberation/echo" },
-    { "dereverb_denoiser", "Noise + Room Echo Removal",
-      "Combined single-pass (lower latency)" },
-    { "aec",               "Acoustic Echo Cancellation",
-      "Remove speaker playback from microphone" },
-    { "superres",          "Audio Super Resolution",
-      "Upscale low-quality audio (8/16kHz -> 48kHz)" },
-    { "studio_voice_hq",   "Studio Voice (High Quality)",
-      "Make any mic sound professional" },
-    { "studio_voice_ll",   "Studio Voice (Low Latency)",
-      "Studio quality with lower latency" },
-    { "speaker_focus",     "Speaker Focus",
-      "Isolate main speaker, remove others" },
-    { "voice_font_hq",     "Voice Font (High Quality)",
-      "Change voice to match reference" },
-    { "voice_font_ll",     "Voice Font (Low Latency)",
-      "Voice conversion with lower latency" },
-    { NULL, NULL, NULL }
+    { "denoiser",       "Noise Removal",
+      "Remove background noise (typing, fans, etc.)",        "noise" },
+    { "dereverb",       "Room Echo Removal",
+      "Remove room reverberation/echo",                      "echo" },
+    { "dereverb-denoiser", "Noise + Room Echo Removal",
+      "Combined single-pass (lower latency)",                "noise" },
+    { "aec",            "Acoustic Echo Cancellation",
+      "Remove speaker playback from microphone",             "echo" },
+    { "superres",       "Audio Super Resolution",
+      "Upscale low-quality audio (8/16kHz -> 48kHz)",        "enhancement" },
+    { "studio-voice-hq", "Studio Voice (High Quality)",
+      "Make any mic sound professional",                     "enhancement" },
+    { "studio-voice-ll", "Studio Voice (Low Latency)",
+      "Studio quality with lower latency",                   "enhancement" },
+    { "speaker-focus",  "Speaker Focus",
+      "Isolate main speaker, remove others",                 "voice" },
+    { "voice-font-hq",  "Voice Font (High Quality)",
+      "Change voice to match reference",                     "voice" },
+    { "voice-font-ll",  "Voice Font (Low Latency)",
+      "Voice conversion with lower latency",                 "voice" },
+    // Chained effects
+    { "denoiser-16k-superres-16k-to-48k",
+      "Denoise 16k + Super Resolution to 48k",
+      "Denoise at 16kHz then upscale to 48kHz",             "noise" },
+    { "dereverb-16k-superres-16k-to-48k",
+      "Dereverb 16k + Super Resolution to 48k",
+      "Remove reverb at 16kHz then upscale to 48kHz",       "echo" },
+    { "dereverb-denoiser-16k-superres-16k-to-48k",
+      "Dereverb + Denoise 16k + Super Resolution to 48k",
+      "Combined dereverb/denoise at 16kHz then upscale",    "noise" },
+    { "superres-8k-to-16k-denoiser-16k",
+      "Super Resolution 8k to 16k + Denoise",
+      "Upscale 8kHz to 16kHz then denoise",                 "enhancement" },
+    { "superres-8k-to-16k-dereverb-16k",
+      "Super Resolution 8k to 16k + Dereverb",
+      "Upscale 8kHz to 16kHz then remove reverb",           "enhancement" },
+    { "superres-8k-to-16k-dereverb-denoiser-16k",
+      "Super Resolution 8k to 16k + Dereverb + Denoise",
+      "Upscale 8kHz to 16kHz then dereverb/denoise",        "enhancement" },
+    { "denoiser-16k-speaker-focus-16k",
+      "Denoise 16k + Speaker Focus 16k",
+      "Denoise then isolate primary speaker at 16kHz",       "voice" },
+    { "denoiser-48k-speaker-focus-48k",
+      "Denoise 48k + Speaker Focus 48k",
+      "Denoise then isolate primary speaker at 48kHz",       "voice" },
+    { NULL, NULL, NULL, NULL }
 };
 
 static const struct effect_info *find_effect_info(const char *id)
@@ -120,7 +146,7 @@ static int cmd_status(sd_bus *bus)
         return 1;
     }
 
-    // Parse the dict
+    // Parse the status dict
     char gpu_name[256] = "Unknown";
     char gpu_arch[32] = "";
     char latency[32] = "?";
@@ -166,6 +192,9 @@ static int cmd_status(sd_bus *bus)
     sd_bus_error_free(&error);
 
     // Get effects list
+    error = (sd_bus_error)SD_BUS_ERROR_NULL;
+    reply = NULL;
+
     r = sd_bus_call_method(bus, DBUS_NAME, DBUS_PATH, DBUS_IFACE,
                            "ListEffects", &error, &reply, "");
     if (r < 0) {
@@ -206,16 +235,16 @@ static int cmd_status(sd_bus *bus)
         const char *display_name = info ? info->name : name;
 
         if (enabled) {
-            printf("  %s%s%s %-28s%senabled%s",
-                   COL(C_GREEN), "\xe2\x97\x8f" /* bullet */, COL(C_RESET),
+            printf("  %s\xe2\x97\x8f%s %-28s%senabled%s",
+                   COL(C_GREEN), COL(C_RESET),
                    display_name,
                    COL(C_GREEN), COL(C_RESET));
             printf("   intensity: %s%.2f%s\n", COL(C_YELLOW),
                    intensity, COL(C_RESET));
         } else {
-            printf("  %s%s%s %s%-28s%sdisabled%s\n",
-                   COL(C_DIM), "\xe2\x97\x8b" /* circle */, COL(C_RESET),
-                   COL(C_DIM), display_name, COL(C_DIM), COL(C_RESET));
+            printf("  %s\xe2\x97\x8b %-28s%sdisabled%s\n",
+                   COL(C_DIM),
+                   display_name, COL(C_DIM), COL(C_RESET));
         }
 
         sd_bus_message_exit_container(reply);
@@ -244,14 +273,32 @@ static int cmd_effects(void)
     printf("\n%s%sAvailable Audio Effects:%s\n\n", COL(C_BOLD), COL(C_CYAN),
            COL(C_RESET));
 
-    printf("  %s%-20s %-32s %s%s\n", COL(C_DIM), "ID", "NAME", "DESCRIPTION",
+    // Main effects (single-pass)
+    printf("  %s%-22s %-34s %s%s\n", COL(C_DIM), "ID", "NAME", "DESCRIPTION",
            COL(C_RESET));
-    printf("  %s%-20s %-32s %s%s\n", COL(C_DIM),
-           "--------------------", "--------------------------------",
-           "-----------------------------------", COL(C_RESET));
+    printf("  %s%-22s %-34s %s%s\n", COL(C_DIM),
+           "----------------------", "----------------------------------",
+           "-------------------------------------------", COL(C_RESET));
+
+    const char *last_category = "";
+    bool printed_chained_header = false;
 
     for (int i = 0; effect_catalog[i].id; i++) {
-        printf("  %s%-20s%s %-32s %s%s%s\n",
+        // Separate chained effects with a header
+        if (i >= 10 && !printed_chained_header) {
+            printf("\n  %s%sChained Effects:%s\n", COL(C_BOLD), COL(C_DIM),
+                   COL(C_RESET));
+            printed_chained_header = true;
+            last_category = "";
+        }
+
+        // Category separators for main effects
+        if (effect_catalog[i].category &&
+            strcmp(effect_catalog[i].category, last_category) != 0 && i > 0)
+            printf("\n");
+        last_category = effect_catalog[i].category ? effect_catalog[i].category : "";
+
+        printf("  %s%-42s%s %-34s %s%s%s\n",
                COL(C_YELLOW), effect_catalog[i].id, COL(C_RESET),
                effect_catalog[i].name,
                COL(C_DIM), effect_catalog[i].description, COL(C_RESET));
@@ -329,8 +376,8 @@ static int cmd_enable(sd_bus *bus, const char *effect)
     }
 
     const struct effect_info *info = find_effect_info(effect);
-    printf("%s%s%s %s%s%s enabled\n",
-           COL(C_GREEN), "\xe2\x9c\x93" /* checkmark */, COL(C_RESET),
+    printf("%s\xe2\x9c\x93%s %s%s%s enabled\n",
+           COL(C_GREEN), COL(C_RESET),
            COL(C_BOLD), info ? info->name : effect, COL(C_RESET));
 
     sd_bus_message_unref(reply);
@@ -354,8 +401,8 @@ static int cmd_disable(sd_bus *bus, const char *effect)
     }
 
     const struct effect_info *info = find_effect_info(effect);
-    printf("%s%s%s %s%s%s disabled\n",
-           COL(C_YELLOW), "\xe2\x97\x8b" /* circle */, COL(C_RESET),
+    printf("%s\xe2\x97\x8b%s %s%s%s disabled\n",
+           COL(C_YELLOW), COL(C_RESET),
            COL(C_BOLD), info ? info->name : effect, COL(C_RESET));
 
     sd_bus_message_unref(reply);
@@ -367,7 +414,7 @@ static int cmd_set(sd_bus *bus, const char *effect, const char *param,
                    const char *value)
 {
     if (strcmp(param, "intensity") != 0) {
-        fprintf(stderr, "%serror:%s unknown parameter '%s' (try 'intensity')\n",
+        fprintf(stderr, "%serror:%s unknown parameter '%s' (supported: intensity)\n",
                 COL(C_RED), COL(C_RESET), param);
         return 1;
     }
@@ -394,8 +441,8 @@ static int cmd_set(sd_bus *bus, const char *effect, const char *param,
     }
 
     const struct effect_info *info = find_effect_info(effect);
-    printf("%s%s%s %s%s%s intensity set to %s%.2f%s\n",
-           COL(C_GREEN), "\xe2\x9c\x93", COL(C_RESET),
+    printf("%s\xe2\x9c\x93%s %s%s%s intensity set to %s%.2f%s\n",
+           COL(C_GREEN), COL(C_RESET),
            COL(C_BOLD), info ? info->name : effect, COL(C_RESET),
            COL(C_YELLOW), intensity, COL(C_RESET));
 
@@ -426,7 +473,7 @@ static int cmd_monitor(sd_bus *bus)
         r = sd_bus_call_method(bus, DBUS_NAME, DBUS_PATH, DBUS_IFACE,
                                "GetStatus", &error, &status_reply, "");
         if (r < 0) {
-            printf("%s%sDaemon not responding%s\n", COL(C_BOLD), COL(C_RED),
+            printf("  %s%sDaemon not responding%s\n", COL(C_BOLD), COL(C_RED),
                    COL(C_RESET));
             sd_bus_error_free(&error);
             sleep(1);
@@ -443,12 +490,14 @@ static int cmd_monitor(sd_bus *bus)
             while ((r = sd_bus_message_enter_container(status_reply, 'e', "ss")) > 0) {
                 const char *key = NULL, *val = NULL;
                 sd_bus_message_read(status_reply, "ss", &key, &val);
-                if (strcmp(key, "frames_processed") == 0)
-                    snprintf(frames, sizeof(frames), "%s", val);
-                else if (strcmp(key, "avg_process_time_us") == 0)
-                    snprintf(process_us, sizeof(process_us), "%s", val);
-                else if (strcmp(key, "latency_ms") == 0)
-                    snprintf(latency, sizeof(latency), "%s", val);
+                if (key && val) {
+                    if (strcmp(key, "frames_processed") == 0)
+                        snprintf(frames, sizeof(frames), "%s", val);
+                    else if (strcmp(key, "avg_process_time_us") == 0)
+                        snprintf(process_us, sizeof(process_us), "%s", val);
+                    else if (strcmp(key, "latency_ms") == 0)
+                        snprintf(latency, sizeof(latency), "%s", val);
+                }
                 sd_bus_message_exit_container(status_reply);
             }
             sd_bus_message_exit_container(status_reply);
@@ -483,8 +532,8 @@ static int cmd_monitor(sd_bus *bus)
 
                 sd_bus_message_read(effects_reply, "sbd", &name, &enabled, &intensity);
 
-                const struct effect_info *info = find_effect_info(name);
-                const char *display = info ? info->name : name;
+                const struct effect_info *info = name ? find_effect_info(name) : NULL;
+                const char *display = info ? info->name : (name ? name : "?");
 
                 if (enabled) {
                     printf("  %s%-28s%s %s%-10s%s %s%.2f%s\n",
@@ -502,8 +551,8 @@ static int cmd_monitor(sd_bus *bus)
         }
 
         printf("\n");
-        printf("  %sFrames:%s %-16s ", COL(C_BOLD), COL(C_RESET), frames);
-        printf("  %sLatency:%s ~%sms ", COL(C_BOLD), COL(C_RESET), latency);
+        printf("  %sFrames:%s %-16s", COL(C_BOLD), COL(C_RESET), frames);
+        printf("  %sLatency:%s ~%sms", COL(C_BOLD), COL(C_RESET), latency);
         printf("  %sProcess:%s %s us/frame\n", COL(C_BOLD), COL(C_RESET),
                process_us);
 
@@ -548,9 +597,10 @@ static void print_help(void)
     printf("  maxctl disable dereverb\n");
     printf("  maxctl monitor\n");
 
-    printf("\n%sEffect IDs:%s (use 'maxctl effects' for full descriptions)\n",
+    printf("\n%sEffect IDs:%s (use 'maxctl effects' for full list)\n",
            COL(C_BOLD), COL(C_RESET));
-    for (int i = 0; effect_catalog[i].id; i++) {
+    // Show just the main (non-chained) effects for brevity
+    for (int i = 0; i < 10 && effect_catalog[i].id; i++) {
         printf("  %s%-20s%s %s\n", COL(C_YELLOW), effect_catalog[i].id,
                COL(C_RESET), effect_catalog[i].name);
     }

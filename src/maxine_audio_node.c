@@ -155,12 +155,24 @@ static int init_effect(struct maxine_audio_node *node)
         return -1;
     }
 
-    snprintf(model, sizeof(model), "%s/%s/models/sm_89/",
-             node->model_path, node->model_subdir);
+    // Build model file path: features/<effect>/models/sm_89/<effect>_<rate>k.trtpkg
+    {
+        const char *rate_suffix = (node->config.sample_rate == 48000) ? "48k" : "16k";
+        snprintf(model, sizeof(model), "%s/%s/models/sm_89/%s_%s.trtpkg",
+                 node->model_path, node->model_subdir,
+                 node->model_subdir, rate_suffix);
+    }
 
-    st = node->sdk->SetString(node->fx_handle, NVAFX_PARAM_MODEL_PATH, model);
+    // SDK 2.1.0 requires SetStringList for model_path
+    if (node->sdk->SetStringList) {
+        const char *model_list[1] = { model };
+        st = node->sdk->SetStringList(node->fx_handle, NVAFX_PARAM_MODEL_PATH,
+                                       model_list, 1);
+    } else {
+        st = node->sdk->SetString(node->fx_handle, NVAFX_PARAM_MODEL_PATH, model);
+    }
     if (st != NVAFX_STATUS_SUCCESS) {
-        fprintf(stderr, "maxine: SetString(model_path, %s) failed: %s\n",
+        fprintf(stderr, "maxine: SetModel(%s) failed: %s\n",
                 model, nvafx_status_str(st));
         goto fail;
     }
